@@ -1,5 +1,21 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001/api/v1";
+function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    const configured = process.env.NEXT_PUBLIC_API_URL;
+    // If not set, or set to un-deployed railway placeholder, use same-origin relative /api/v1
+    if (!configured || configured.includes("rentigo-backend.up.railway.app")) {
+      const isLocal =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1";
+      return isLocal ? "http://localhost:5001/api/v1" : "/api/v1";
+    }
+    return configured;
+  }
+  const configured = process.env.NEXT_PUBLIC_API_URL;
+  if (!configured || configured.includes("rentigo-backend.up.railway.app")) {
+    return "/api/v1";
+  }
+  return configured;
+}
 
 interface RequestOptions extends RequestInit {
   requiresAuth?: boolean;
@@ -7,11 +23,32 @@ interface RequestOptions extends RequestInit {
 
 const apiUnavailable = "We can’t reach RentiGo right now. Please try again in a moment.";
 
-async function fetchApi(url: string, options: RequestInit) {
+async function fetchWithFallback(url: string, endpoint: string, options: RequestInit) {
   try {
-    return await fetch(url, options);
+    const res = await fetch(url, options);
+    // If external service returns 404 or 502/503 (e.g. railway down), and url is not /api/v1, fallback to /api/v1
+    if (!res.ok && (res.status === 404 || res.status >= 502) && !url.startsWith("/api/v1")) {
+      const fallbackUrl = `/api/v1${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+      try {
+        const fallbackRes = await fetch(fallbackUrl, options);
+        if (fallbackRes.ok) return fallbackRes;
+      } catch {
+        // keep original response
+      }
+    }
+    return res;
   } catch (error) {
     if (options.signal?.aborted) throw error;
+    // Network error or CORS failure from unreachable external host: fallback to /api/v1
+    if (!url.startsWith("/api/v1") && typeof window !== "undefined") {
+      try {
+        const fallbackUrl = `/api/v1${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+        const fallbackRes = await fetch(fallbackUrl, options);
+        return fallbackRes;
+      } catch {
+        // fallback also failed
+      }
+    }
     throw new Error(apiUnavailable);
   }
 }
@@ -32,9 +69,10 @@ export async function apiRequest<T = any>(
     requestHeaders.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  const url = `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
 
-  let response = await fetchApi(url, {
+  let response = await fetchWithFallback(url, endpoint, {
     headers: requestHeaders,
     ...rest,
   });
@@ -44,7 +82,7 @@ export async function apiRequest<T = any>(
     const refreshToken = localStorage.getItem("rentigo_refresh_token");
     if (refreshToken) {
       try {
-        const refreshRes = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
+        const refreshRes = await fetchWithFallback(`${baseUrl}/auth/refresh-token`, "/auth/refresh-token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ refreshToken }),
@@ -63,7 +101,7 @@ export async function apiRequest<T = any>(
 
             // Retry original request with new token
             requestHeaders.set("Authorization", `Bearer ${newAccessToken}`);
-            response = await fetchApi(url, {
+            response = await fetchWithFallback(url, endpoint, {
               headers: requestHeaders,
               ...rest,
             });

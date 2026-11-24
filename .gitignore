@@ -31,3 +31,5 @@ Thumbs.db
 
 # Prisma generated client
 # Keep prisma schema and seed
+
+.impeccable/
