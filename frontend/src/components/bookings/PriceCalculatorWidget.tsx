@@ -221,7 +221,7 @@ export default function PriceCalculatorWidget({
 
         {quoteFailed && (
           <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
-            <p role="alert" className="text-sm">We couldn?t check availability or price. Your dates are still selected.</p>
+            <p role="alert" className="text-sm">Unable to check availability or price. Your dates are still selected.</p>
             <Button variant="outline" className="mt-2" onClick={() => setQuoteAttempt((value) => value + 1)}>
               Retry quote
             </Button>

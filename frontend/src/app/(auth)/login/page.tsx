@@ -89,7 +89,7 @@ export default function LoginPage() {
           {bookingReturn && (
             <>
               <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-                Sign in with a renter account to return to your vehicle. We?ll check availability and price again for your selected dates.
+                Sign in with a renter account to return to your vehicle. We will check availability and price again for your selected dates.
               </p>
               <Link href={bookingReturn} className="mt-3 inline-block rounded-sm text-sm font-semibold text-blue-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 dark:text-blue-300">
                 Back to your quote

@@ -158,7 +158,7 @@ function VehiclesContent() {
           </div>
         ) : requestFailed ? (
           <div role="alert" className="rounded-xl border border-gray-200 p-8 text-center dark:border-gray-800">
-            <h2 className="text-lg font-bold">We couldn?t load vehicles</h2>
+            <h2 className="text-lg font-bold">Unable to load vehicles</h2>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">Your search filters are still set.</p>
             <Button className="mt-4" onClick={() => setAttempt((value) => value + 1)}>Retry</Button>
           </div>
