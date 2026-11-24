@@ -17,9 +17,14 @@ import {
 
 interface VehicleCardProps {
   vehicle: Vehicle;
+  dateQuery?: string;
+  catalogQuery?: string;
 }
 
-export default function VehicleCard({ vehicle }: VehicleCardProps) {
+export default function VehicleCard({ vehicle, dateQuery = "", catalogQuery = "" }: VehicleCardProps) {
+  const query = new URLSearchParams(dateQuery);
+  if (catalogQuery) query.set("catalog", catalogQuery);
+  const suffix = query.size ? `?${query.toString()}` : "";
   const primaryImg =
     vehicle.images?.find((img) => img.isPrimary)?.url ||
     vehicle.images?.[0]?.url ||
@@ -118,10 +123,11 @@ export default function VehicleCard({ vehicle }: VehicleCardProps) {
             </div>
           </div>
 
-          <Link href={`/vehicles/${vehicle.id}`}>
-            <button className="w-full rounded-xl bg-gray-900 py-2.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-blue-600 dark:bg-gray-800 dark:hover:bg-blue-600">
-              View Details & Reserve
-            </button>
+          <Link
+            href={`/vehicles/${vehicle.id}${suffix}`}
+            className="block w-full rounded-xl bg-gray-900 px-3 py-2.5 text-center text-sm font-semibold text-white transition-colors hover:bg-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:bg-gray-800 dark:hover:bg-blue-600"
+          >
+            View details <span className="sr-only">for {vehicle.brand} {vehicle.model}</span>
           </Link>
         </div>
       </div>

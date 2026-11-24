@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "../../../store/authStore";
@@ -19,6 +19,13 @@ import {
 import { toast } from "sonner";
 import { UserRole } from "../../../types";
 
+function getBookingReturn() {
+  const returnTo = new URLSearchParams(window.location.search).get("returnTo");
+  return returnTo && /^\/vehicles\/[A-Za-z0-9_-]+\?[^#]*#booking$/.test(returnTo)
+    ? returnTo
+    : null;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { login, quickDemoLogin, isLoading } = useAuthStore();
@@ -26,6 +33,21 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const [bookingReturn, setBookingReturn] = useState<string | null>(null);
+
+  useEffect(() => {
+    setBookingReturn(getBookingReturn());
+  }, []);
+
+  const finishSignIn = (role: UserRole) => {
+    if (role === "ADMIN") return router.push("/dashboard/admin");
+    if (role === "AGENCY_OWNER") return router.push("/dashboard/agency");
+
+    const returnTo = getBookingReturn();
+    if (returnTo) return router.replace(returnTo);
+    router.push("/vehicles");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,13 +57,7 @@ export default function LoginPage() {
       const user = await login(email, password);
       toast.success(`Welcome back, ${user.firstName}!`);
 
-      if (user.role === "ADMIN") {
-        router.push("/dashboard/admin");
-      } else if (user.role === "AGENCY_OWNER") {
-        router.push("/dashboard/agency");
-      } else {
-        router.push("/vehicles");
-      }
+      finishSignIn(user.role);
     } catch (err: any) {
       setError(err.message || "Invalid credentials");
     }
@@ -53,13 +69,7 @@ export default function LoginPage() {
       const user = await quickDemoLogin(role);
       toast.success(`Signed in as ${user.firstName} (${role})`);
 
-      if (role === "ADMIN") {
-        router.push("/dashboard/admin");
-      } else if (role === "AGENCY_OWNER") {
-        router.push("/dashboard/agency");
-      } else {
-        router.push("/vehicles");
-      }
+      finishSignIn(user.role);
     } catch (err: any) {
       setError(err.message || "Failed to sign in with demo account");
     }
@@ -74,11 +84,18 @@ export default function LoginPage() {
             <Car className="h-6 w-6" />
           </div>
           <h2 className="mt-4 text-2xl font-black tracking-tight text-gray-950 dark:text-white">
-            Sign In to RentiGo
+            {bookingReturn ? "Sign in to continue booking" : "Sign in to RentiGo"}
           </h2>
-          <p className="mt-1 text-xs text-gray-500">
-            Access your rentals, manage fleet operations, or view analytics
-          </p>
+          {bookingReturn && (
+            <>
+              <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                Sign in with a renter account to return to your vehicle. We?ll check availability and price again for your selected dates.
+              </p>
+              <Link href={bookingReturn} className="mt-3 inline-block rounded-sm text-sm font-semibold text-blue-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 dark:text-blue-300">
+                Back to your quote
+              </Link>
+            </>
+          )}
         </div>
 
         {/* 1-Click Demo Accounts Pill Box */}

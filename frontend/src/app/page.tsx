@@ -15,11 +15,14 @@ import {
   Coins,
   ChevronRight,
   Search,
-  Sparkles,
   ArrowRight,
   Building2,
   Clock,
 } from "lucide-react";
+
+import { rentalDate, rentalRange } from "../lib/rentalDates";
+
+const searchControl = "min-h-11 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-gray-600 dark:bg-slate-900 dark:text-white";
 
 export default function HomePage() {
   const router = useRouter();
@@ -29,9 +32,21 @@ export default function HomePage() {
   // Hero Quick Search
   const [type, setType] = useState<string>("");
   const [city, setCity] = useState<string>("");
-  const [search, setSearch] = useState<string>("");
+  const [search, setSearch] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [dateError, setDateError] = useState("");
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setCity(params.get("city") || "");
+    setType(params.get("type") || "");
+    setSearch(params.get("search") || "");
+    const range = rentalRange(params.get("startDate") || "", params.get("endDate") || "");
+    if (range) {
+      setStartDate(range.startDate);
+      setEndDate(range.endDate);
+    }
     apiRequest<Vehicle[]>("/vehicles?limit=6", { requiresAuth: false })
       .then((data) => {
         setVehicles(Array.isArray(data) ? data : []);
@@ -44,7 +59,17 @@ export default function HomePage() {
 
   const handleHeroSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(window.location.search);
+    for (const key of ["startDate", "endDate", "city", "type", "search"]) params.delete(key);
+    const range = rentalRange(startDate, endDate);
+    if ((startDate || endDate) && (!range || startDate < rentalDate())) {
+      setDateError("Choose a pickup date and a later return date.");
+      return;
+    }
+    if (range) {
+      params.set("startDate", range.startDate);
+      params.set("endDate", range.endDate);
+    }
     if (type) params.set("type", type);
     if (city) params.set("city", city);
     if (search) params.set("search", search);
@@ -53,72 +78,70 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      {/* 1. Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-blue-950 via-slate-900 to-gray-950 text-white py-20 lg:py-28">
-        {/* Ambient glow backgrounds */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-blue-600/20 blur-[130px] rounded-full pointer-events-none" />
-        <div className="absolute bottom-10 right-10 w-[400px] h-[300px] bg-emerald-600/10 blur-[120px] rounded-full pointer-events-none" />
-
-        <div className="container relative mx-auto px-4 sm:px-6 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-xs font-semibold text-blue-300 backdrop-blur-md mb-6 animate-in fade-in slide-in-from-bottom-2">
-            <Sparkles className="h-3.5 w-3.5 text-blue-400" />
-            <span>Next-Generation Fleet Rental Platform</span>
+      <section className="bg-slate-950 py-12 text-white lg:py-20">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-12">
+            <div>
+              <h1 className="max-w-xl text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
+                Find a rental for your dates
+              </h1>
+              <p className="mt-4 max-w-lg text-base leading-relaxed text-slate-300 sm:text-lg">
+                Browse cars, bikes, and scooters by pickup city. Check availability and see your total for a day, a week, or longer.
+              </p>
+            </div>
+            {vehicles.some((vehicle) => vehicle.images?.length) && (
+              <div className="hidden gap-3 lg:grid lg:grid-cols-2">
+                {vehicles.filter((vehicle) => vehicle.images?.length).slice(0, 2).map((vehicle) => (
+                  <img
+                    key={vehicle.id}
+                    src={(vehicle.images.find((image) => image.isPrimary) || vehicle.images[0]).url}
+                    alt={`${vehicle.brand} ${vehicle.model} from the rental fleet`}
+                    className="aspect-[4/3] w-full rounded-xl object-cover"
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
-          <h1 className="max-w-4xl mx-auto text-4xl sm:text-6xl font-black tracking-tight leading-tight sm:leading-tight">
-            Rent Two-Wheelers & Four-Wheelers.{" "}
-            <span className="bg-gradient-to-r from-blue-400 via-sky-300 to-emerald-400 bg-clip-text text-transparent">
-              Daily, Weekly, or Monthly.
-            </span>
-          </h1>
-
-          <p className="max-w-2xl mx-auto mt-6 text-base sm:text-lg text-slate-300">
-            Say goodbye to spreadsheets and double bookings. Discover verified cars, electric vehicles, sport bikes, and city scooters with automated availability conflict prevention.
-          </p>
-
-          {/* Hero Interactive Search Bar */}
-          <div className="max-w-3xl mx-auto mt-10 rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur-xl shadow-2xl">
-            <form onSubmit={handleHeroSearch} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-              <div className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-left">
-                <Search className="h-4 w-4 text-slate-400 flex-shrink-0" />
-                <input
-                  type="text"
-                  placeholder="Make or Model..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-transparent text-xs text-white placeholder:text-slate-400 focus:outline-none"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-left">
-                <select
-                  value={type}
-                  onChange={(e) => setType(e.target.value)}
-                  className="w-full bg-transparent text-xs text-white focus:outline-none [&>option]:bg-gray-900 [&>option]:text-white"
-                >
-                  <option value="">All Vehicle Types</option>
-                  <option value="FOUR_WHEELER">Four-Wheelers (Cars/SUVs)</option>
-                  <option value="TWO_WHEELER">Two-Wheelers (Bikes/Scooters)</option>
-                </select>
-              </div>
-
-              <div className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-left">
-                <select
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  className="w-full bg-transparent text-xs text-white focus:outline-none [&>option]:bg-gray-900 [&>option]:text-white"
-                >
-                  <option value="">All Locations</option>
+          <form onSubmit={handleHeroSearch} className="mt-8 rounded-xl bg-white p-4 text-gray-950 dark:bg-slate-800 dark:text-white sm:p-5">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
+              <label className="grid min-w-0 gap-1.5 text-sm font-semibold" htmlFor="hero-city">
+                Pickup city
+                <select id="hero-city" className={searchControl} value={city} onChange={(e) => setCity(e.target.value)}>
+                  <option value="">All cities</option>
                   <option value="San Francisco">San Francisco, CA</option>
                   <option value="Austin">Austin, TX</option>
                 </select>
+              </label>
+              <label className="grid min-w-0 gap-1.5 text-sm font-semibold" htmlFor="hero-start">
+                Pickup date
+                <input id="hero-start" type="date" className={searchControl} value={startDate} min={rentalDate()} aria-describedby={dateError ? "hero-date-error" : undefined} onChange={(e) => { setStartDate(e.target.value); setDateError(""); }} />
+              </label>
+              <label className="grid min-w-0 gap-1.5 text-sm font-semibold" htmlFor="hero-end">
+                Return date
+                <input id="hero-end" type="date" className={searchControl} value={endDate} min={startDate || rentalDate(1)} aria-describedby={dateError ? "hero-date-error" : undefined} onChange={(e) => { setEndDate(e.target.value); setDateError(""); }} />
+              </label>
+              <Button type="submit" size="lg" className="min-h-11 w-full">Find vehicles</Button>
+            </div>
+            {dateError && <p id="hero-date-error" role="alert" className="mt-3 text-sm text-red-700 dark:text-red-300">{dateError}</p>}
+            <details className="mt-4 border-t border-gray-200 pt-3 text-sm dark:border-slate-600">
+              <summary className="w-fit cursor-pointer rounded-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">Search by make or vehicle type</summary>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1.5 font-semibold" htmlFor="hero-search">
+                  Make or model
+                  <input id="hero-search" type="search" className={searchControl} value={search} onChange={(e) => setSearch(e.target.value)} />
+                </label>
+                <label className="grid gap-1.5 font-semibold" htmlFor="hero-type">
+                  Vehicle type
+                  <select id="hero-type" className={searchControl} value={type} onChange={(e) => setType(e.target.value)}>
+                    <option value="">All vehicle types</option>
+                    <option value="FOUR_WHEELER">Cars and SUVs</option>
+                    <option value="TWO_WHEELER">Bikes and scooters</option>
+                  </select>
+                </label>
               </div>
-
-              <Button type="submit" size="lg" className="w-full font-bold shadow-md shadow-blue-500/30">
-                Explore Fleet
-              </Button>
-            </form>
-          </div>
+            </details>
+          </form>
 
           {/* Fast Quick Links */}
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3 text-xs text-slate-400">
@@ -313,7 +336,7 @@ export default function HomePage() {
               Digitize Your Entire Vehicle Fleet Today
             </h2>
             <p className="text-sm text-slate-300 mt-2 max-w-xl">
-              Gain access to automated booking approvals, calendar scheduling, tiered pricing tools, and real-time revenue analytics.
+              Manage reservations and maintenance in one place, without juggling spreadsheets or double bookings.
             </p>
           </div>
           <Link href="/register">

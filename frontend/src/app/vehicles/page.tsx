@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+import { rentalDateTime, rentalRange } from "../../lib/rentalDates";
+
 import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Vehicle } from "../../types";
@@ -30,8 +33,22 @@ function VehiclesContent() {
     sortBy: searchParams.get("sortBy") || "newest",
   });
 
-  const fetchVehicles = () => {
+  const [requestFailed, setRequestFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const startDate = searchParams.get("startDate") || "";
+  const endDate = searchParams.get("endDate") || "";
+  const range = rentalRange(startDate, endDate);
+  const dateQuery = range ? new URLSearchParams(range).toString() : "";
+  const catalogParams = new URLSearchParams(dateQuery);
+  for (const [name, value] of Object.entries(filters)) {
+    if (value && !(name === "sortBy" && value === "newest")) catalogParams.set(name, value);
+  }
+  const catalogReturn = catalogParams.toString();
+
+  useEffect(() => {
+    const controller = new AbortController();
     setIsLoading(true);
+    setRequestFailed(false);
     const query = new URLSearchParams();
 
     if (filters.search) query.set("search", filters.search);
@@ -54,23 +71,30 @@ function VehiclesContent() {
       query.set("sortOrder", "desc");
     }
 
-    apiRequest<Vehicle[]>(`/vehicles?${query.toString()}`, { requiresAuth: false })
+    if (dateQuery) {
+      query.set("startDate", rentalDateTime(startDate));
+      query.set("endDate", rentalDateTime(endDate));
+    }
+
+    apiRequest<Vehicle[]>(`/vehicles?${query.toString()}`, {
+      requiresAuth: false,
+      signal: controller.signal,
+    })
       .then((data) => {
+        if (controller.signal.aborted) return;
         const list = Array.isArray(data) ? data : [];
         setVehicles(list);
         setTotalCount(list.length);
-        setIsLoading(false);
       })
       .catch(() => {
-        setVehicles([]);
-        setTotalCount(0);
-        setIsLoading(false);
+        if (!controller.signal.aborted) setRequestFailed(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
       });
-  };
 
-  useEffect(() => {
-    fetchVehicles();
-  }, [filters]);
+    return () => controller.abort();
+  }, [filters, dateQuery, startDate, endDate, attempt]);
 
   const handleFilterChange = (updated: Partial<typeof filters>) => {
     setFilters((prev) => ({ ...prev, ...updated }));
@@ -102,24 +126,41 @@ function VehiclesContent() {
         </p>
       </div>
 
+      {range && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <p>Pickup <time dateTime={startDate}>{startDate}</time> ? Return <time dateTime={endDate}>{endDate}</time></p>
+          <Link className="font-semibold text-blue-700 underline dark:text-blue-300" href={`/?${catalogReturn}`}>
+            Change rental dates
+          </Link>
+        </div>
+      )}
+
       {/* Filter Component */}
       <VehicleFilter
         filters={filters}
         onChange={handleFilterChange}
         onReset={handleResetFilters}
-        totalResults={totalCount}
+        totalResults={isLoading || requestFailed ? undefined : totalCount}
       />
+
+      <p role="status" className="sr-only">{isLoading ? "Finding vehicles?" : ""}</p>
 
       {/* Grid of Results */}
       <div className="mt-8">
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div aria-hidden="true" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div
                 key={i}
                 className="h-80 rounded-2xl bg-gray-200 animate-pulse dark:bg-gray-800"
               />
             ))}
+          </div>
+        ) : requestFailed ? (
+          <div role="alert" className="rounded-xl border border-gray-200 p-8 text-center dark:border-gray-800">
+            <h2 className="text-lg font-bold">We couldn?t load vehicles</h2>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">Your search filters are still set.</p>
+            <Button className="mt-4" onClick={() => setAttempt((value) => value + 1)}>Retry</Button>
           </div>
         ) : vehicles.length === 0 ? (
           <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center dark:border-gray-800 dark:bg-gray-900">
@@ -130,7 +171,7 @@ function VehiclesContent() {
               No vehicles matched your search
             </h3>
             <p className="mt-1 text-sm text-gray-500 max-w-sm mx-auto">
-              Try adjusting your price range, fuel type, or clearing filters to see more results.
+              {range ? "Try different dates or adjust your filters." : "Try adjusting your price range, fuel type, or clearing filters."}
             </p>
             <Button
               onClick={handleResetFilters}
@@ -143,7 +184,7 @@ function VehiclesContent() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {vehicles.map((v) => (
-              <VehicleCard key={v.id} vehicle={v} />
+              <VehicleCard key={v.id} vehicle={v} dateQuery={dateQuery} catalogQuery={catalogReturn} />
             ))}
           </div>
         )}
@@ -155,7 +196,12 @@ function VehiclesContent() {
 export default function VehiclesPage() {
   return (
     <Suspense fallback={<div className="container mx-auto p-10 text-center">Loading fleet...</div>}>
-      <VehiclesContent />
+      <VehiclesRoute />
     </Suspense>
   );
+}
+
+function VehiclesRoute() {
+  const params = useSearchParams();
+  return <VehiclesContent key={params.toString()} />;
 }

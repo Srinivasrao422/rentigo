@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import React, { useState, useEffect, Suspense } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Vehicle } from "../../../types";
 import { apiRequest } from "../../../lib/api";
 import PriceCalculatorWidget from "../../../components/bookings/PriceCalculatorWidget";
+import { rentalRange } from "../../../lib/rentalDates";
 import { formatCurrency } from "../../../lib/utils";
 import {
   Car,
@@ -26,8 +27,18 @@ import {
 } from "lucide-react";
 
 export default function VehicleDetailPage() {
+  return <Suspense fallback={<p role="status" className="p-8 text-center">Loading vehicle details?</p>}>
+    <VehicleDetails />
+  </Suspense>;
+}
+
+function VehicleDetails() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
+  const range = rentalRange(searchParams.get("startDate") || "", searchParams.get("endDate") || "");
+  const catalog = searchParams.get("catalog");
+  const backQuery = new URLSearchParams(catalog || (range ? new URLSearchParams(range) : undefined));
+  const catalogHref = backQuery.size ? `/vehicles?${backQuery.toString()}` : "/vehicles";
   const vehicleId = params.id as string;
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
@@ -54,6 +65,13 @@ export default function VehicleDetailPage() {
       });
   }, [vehicleId]);
 
+  useEffect(() => {
+    if (!vehicle || window.location.hash !== "#booking") return;
+    const panel = document.getElementById("booking");
+    panel?.focus({ preventScroll: true });
+    panel?.scrollIntoView({ block: "start" });
+  }, [vehicle]);
+
   if (isLoading) {
     return (
       <div className="container mx-auto px-4 py-16 text-center">
@@ -73,7 +91,7 @@ export default function VehicleDetailPage() {
           {error || "The requested vehicle could not be loaded."}
         </p>
         <Link
-          href="/vehicles"
+          href={catalogHref}
           className="mt-6 inline-flex items-center text-sm font-semibold text-blue-600 hover:underline"
         >
           &larr; Back to Fleet
@@ -88,7 +106,7 @@ export default function VehicleDetailPage() {
     <div className="container mx-auto px-4 py-8 sm:px-6">
       {/* Back button */}
       <Link
-        href="/vehicles"
+        href={catalogHref}
         className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white mb-6 transition-colors"
       >
         <ChevronLeft className="h-4 w-4" />
@@ -169,6 +187,9 @@ export default function VehicleDetailPage() {
             <p className="text-xs text-gray-400 mt-1">
               Registration Number: {vehicle.vehicleNumber}
             </p>
+            <a href="#booking" className="mt-4 inline-flex min-h-11 items-center rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 lg:hidden">
+              Check availability
+            </a>
           </div>
 
           {/* Specs Grid */}
@@ -309,8 +330,13 @@ export default function VehicleDetailPage() {
         </div>
 
         {/* Right Column: Live Tiered Calculator & Booking Engine (5 cols) */}
-        <div className="lg:col-span-5">
-          <PriceCalculatorWidget vehicle={vehicle} />
+        <div id="booking" tabIndex={-1} className="scroll-mt-24 lg:col-span-5">
+          <PriceCalculatorWidget
+            key={`${vehicle.id}:${range?.startDate}:${range?.endDate}`}
+            vehicle={vehicle}
+            initialDates={range}
+            catalogQuery={catalog}
+          />
         </div>
       </div>
     </div>

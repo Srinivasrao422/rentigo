@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Vehicle, PriceQuote } from "../../types";
 import { apiRequest } from "../../lib/api";
 import { useAuthStore } from "../../store/authStore";
+import { rentalDate, rentalDateTime, rentalRange } from "../../lib/rentalDates";
 import { formatCurrency, formatDate } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
@@ -22,26 +23,30 @@ import { toast } from "sonner";
 
 interface PriceCalculatorWidgetProps {
   vehicle: Vehicle;
+  initialDates?: ReturnType<typeof rentalRange>;
+  catalogQuery?: string | null;
 }
 
 export default function PriceCalculatorWidget({
   vehicle,
+  initialDates,
+  catalogQuery,
 }: PriceCalculatorWidgetProps) {
   const router = useRouter();
   const { user } = useAuthStore();
 
-  // Default to tomorrow until 4 days from tomorrow
-  const getTomorrowStr = (daysAhead: number = 1) => {
-    const d = new Date();
-    d.setDate(d.getDate() + daysAhead);
-    return d.toISOString().split("T")[0];
-  };
-
-  const [startDate, setStartDate] = useState(getTomorrowStr(1));
-  const [endDate, setEndDate] = useState(getTomorrowStr(5));
-  const [quote, setQuote] = useState<PriceQuote | null>(null);
-  const [isLoadingQuote, setIsLoadingQuote] = useState(false);
-  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState(() => initialDates?.startDate || rentalDate(1));
+  const [endDate, setEndDate] = useState(() => initialDates?.endDate || rentalDate(5));
+  const [quoteResult, setQuoteResult] = useState<{ key: string; quote?: PriceQuote; failed?: boolean } | null>(null);
+  const [quoteAttempt, setQuoteAttempt] = useState(0);
+  const dateError = !rentalRange(startDate, endDate) || startDate < rentalDate()
+    ? "Choose a pickup date and a later return date."
+    : null;
+  const quoteKey = `${vehicle.id}:${startDate}:${endDate}:${user?.id ?? "guest"}:${quoteAttempt}`;
+  const matchingResult = quoteResult?.key === quoteKey ? quoteResult : null;
+  const quote = dateError ? null : matchingResult?.quote;
+  const quoteFailed = !!matchingResult?.failed;
+  const isLoadingQuote = !dateError && !matchingResult;
 
   // Booking Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -54,41 +59,35 @@ export default function PriceCalculatorWidget({
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Fetch Quote when dates change
   useEffect(() => {
-    if (!startDate || !endDate) return;
-
-    if (new Date(endDate) <= new Date(startDate)) {
-      setQuoteError("End date must be after start date");
-      setQuote(null);
-      return;
-    }
-
-    setQuoteError(null);
-    setIsLoadingQuote(true);
-
-    const startIso = new Date(`${startDate}T10:00:00Z`).toISOString();
-    const endIso = new Date(`${endDate}T10:00:00Z`).toISOString();
-
-    apiRequest<PriceQuote>(
-      `/bookings/quote?vehicleId=${vehicle.id}&startDate=${startIso}&endDate=${endIso}`,
-      { requiresAuth: false }
-    )
+    if (dateError) return;
+    const controller = new AbortController();
+    const query = new URLSearchParams({
+      vehicleId: vehicle.id,
+      startDate: rentalDateTime(startDate),
+      endDate: rentalDateTime(endDate),
+    });
+    apiRequest<PriceQuote>(`/bookings/quote?${query.toString()}`, {
+      requiresAuth: false,
+      cache: "no-store",
+      signal: controller.signal,
+    })
       .then((data) => {
-        setQuote(data);
-        setIsLoadingQuote(false);
+        if (!controller.signal.aborted) setQuoteResult({ key: quoteKey, quote: data });
       })
-      .catch((err) => {
-        setQuoteError(err.message || "Failed to calculate quote");
-        setQuote(null);
-        setIsLoadingQuote(false);
+      .catch(() => {
+        if (!controller.signal.aborted) setQuoteResult({ key: quoteKey, failed: true });
       });
-  }, [vehicle.id, startDate, endDate]);
+    return () => controller.abort();
+  }, [vehicle.id, startDate, endDate, dateError, quoteKey]);
 
   const handleOpenBookingModal = () => {
+    if (!quote?.isAvailable || isLoadingQuote || dateError || quoteFailed) return;
     if (!user) {
-      toast.error("Please sign in or select Demo Persona to reserve a vehicle");
-      router.push("/login");
+      const returnParams = new URLSearchParams({ startDate, endDate });
+      if (catalogQuery) returnParams.set("catalog", catalogQuery);
+      const returnTo = `/vehicles/${encodeURIComponent(vehicle.id)}?${returnParams.toString()}#booking`;
+      router.push(`/login?${new URLSearchParams({ returnTo }).toString()}`);
       return;
     }
     setIsModalOpen(true);
@@ -96,12 +95,12 @@ export default function PriceCalculatorWidget({
 
   const handleConfirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || !quote?.isAvailable || isLoadingQuote || dateError || quoteFailed || isSubmitting) return;
 
     setIsSubmitting(true);
     try {
-      const startIso = new Date(`${startDate}T10:00:00Z`).toISOString();
-      const endIso = new Date(`${endDate}T10:00:00Z`).toISOString();
+      const startIso = rentalDateTime(startDate);
+      const endIso = rentalDateTime(endDate);
 
       const booking = await apiRequest("/bookings", {
         method: "POST",
@@ -148,35 +147,47 @@ export default function PriceCalculatorWidget({
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+            <label htmlFor="pickup-date" className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
               <CalendarIcon className="h-3.5 w-3.5 text-blue-500" />
-              <span>Pick-up Date</span>
+              <span>Pickup date</span>
             </label>
-            <input
+            <input id="pickup-date"
               type="date"
               value={startDate}
-              min={getTomorrowStr(0)}
-              onChange={(e) => setStartDate(e.target.value)}
+              aria-describedby={dateError ? "quote-date-error" : undefined}
+              min={rentalDate()}
+              onChange={(e) => {
+                setQuoteResult(null);
+                setStartDate(e.target.value);
+              }}
               className="w-full rounded-xl border border-gray-200 bg-gray-50/50 p-2.5 text-xs font-medium text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-800 dark:bg-gray-800 dark:text-white"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+            <label htmlFor="return-date" className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
               <CalendarIcon className="h-3.5 w-3.5 text-blue-500" />
-              <span>Drop-off Date</span>
+              <span>Return date</span>
             </label>
-            <input
+            <input id="return-date"
               type="date"
               value={endDate}
-              min={startDate || getTomorrowStr(1)}
-              onChange={(e) => setEndDate(e.target.value)}
+              aria-describedby={dateError ? "quote-date-error" : undefined}
+              min={startDate || rentalDate(1)}
+              onChange={(e) => {
+                setQuoteResult(null);
+                setEndDate(e.target.value);
+              }}
               className="w-full rounded-xl border border-gray-200 bg-gray-50/50 p-2.5 text-xs font-medium text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-800 dark:bg-gray-800 dark:text-white"
             />
           </div>
         </div>
 
-        {/* Real-Time Availability Check Feedback */}
+        <p role="status" className="sr-only">
+          {isLoadingQuote ? "Checking availability and price." : quote?.isAvailable ? "Available for your selected dates." : quote ? "Unavailable for your selected dates. Try different dates." : ""}
+        </p>
+
+        {/* Availability feedback */}
         {quote && (
           <div
             className={`flex items-center gap-2 rounded-xl p-3 text-xs font-medium ${
@@ -188,29 +199,40 @@ export default function PriceCalculatorWidget({
             {quote.isAvailable ? (
               <>
                 <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-                <span>Vehicle is available for these dates! Guaranteed no conflicts.</span>
+                <span>Available for your selected dates</span>
               </>
             ) : (
               <>
                 <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
-                <span>{quote.conflictReason || "Vehicle is unavailable for these dates."}</span>
+                <span>
+                  {quote.conflictReason || "Unavailable for your selected dates."} Try a different pickup or return date.
+                </span>
               </>
             )}
           </div>
         )}
 
-        {quoteError && (
-          <div className="flex items-center gap-2 rounded-xl bg-amber-50 p-3 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+        {dateError && (
+          <div id="quote-date-error" role="alert" className="flex items-center gap-2 rounded-xl bg-amber-50 p-3 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
             <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0" />
-            <span>{quoteError}</span>
+            <span>{dateError}</span>
           </div>
         )}
 
-        {/* Live Tiered Pricing Breakdown */}
+        {quoteFailed && (
+          <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+            <p role="alert" className="text-sm">We couldn?t check availability or price. Your dates are still selected.</p>
+            <Button variant="outline" className="mt-2" onClick={() => setQuoteAttempt((value) => value + 1)}>
+              Retry quote
+            </Button>
+          </div>
+        )}
+
+        {/* Live pricing breakdown */}
         {isLoadingQuote && (
-          <div className="flex items-center justify-center py-6 text-xs text-gray-500">
+          <div aria-hidden="true" className="flex items-center justify-center py-6 text-xs text-gray-600 dark:text-gray-300">
             <Clock className="h-4 w-4 animate-spin mr-2 text-blue-500" />
-            <span>Calculating best tiered price...</span>
+            <span>Checking availability and price?</span>
           </div>
         )}
 
@@ -274,16 +296,16 @@ export default function PriceCalculatorWidget({
         {/* CTA Button */}
         <Button
           onClick={handleOpenBookingModal}
-          disabled={!quote?.isAvailable || isLoadingQuote || !!quoteError}
+          disabled={!quote?.isAvailable || isLoadingQuote || !!dateError || quoteFailed}
           size="lg"
           className="w-full text-base font-bold shadow-lg shadow-blue-500/25"
         >
-          Request Booking
+          {user ? "Request booking" : "Sign in to request booking"}
         </Button>
 
         <p className="text-center text-[11px] text-gray-500 flex items-center justify-center gap-1">
           <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
-          <span>Agency approval required before payment charge</span>
+          <span>The rental agency reviews your request before any payment is charged.</span>
         </p>
       </div>
 
@@ -306,11 +328,11 @@ export default function PriceCalculatorWidget({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
+            <label htmlFor="pickup-location" className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
               <MapPin className="h-3.5 w-3.5 text-blue-500" />
               <span>Pick-up Location</span>
             </label>
-            <input
+            <input id="pickup-location"
               type="text"
               required
               value={pickupLocation}
@@ -320,11 +342,11 @@ export default function PriceCalculatorWidget({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
+            <label htmlFor="return-location" className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
               <MapPin className="h-3.5 w-3.5 text-blue-500" />
               <span>Drop-off Location</span>
             </label>
-            <input
+            <input id="return-location"
               type="text"
               required
               value={dropoffLocation}
@@ -334,10 +356,10 @@ export default function PriceCalculatorWidget({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="booking-notes" className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
               Special Requests or Notes for Agency (Optional)
             </label>
-            <textarea
+            <textarea id="booking-notes"
               rows={2}
               placeholder="e.g. Flight arrival time, child seat, extra helmet..."
               value={notes}

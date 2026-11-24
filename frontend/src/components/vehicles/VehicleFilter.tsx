@@ -1,8 +1,7 @@
 "use client";
 
 import React from "react";
-import { VehicleType, FuelType, Transmission } from "../../types";
-import { Search, RotateCcw, Car, Bike, Filter } from "lucide-react";
+import { Search, RotateCcw, Car, Bike } from "lucide-react";
 
 interface FilterState {
   search: string;
@@ -34,22 +33,27 @@ export default function VehicleFilter({
       {/* Search Input & Quick Type Tabs */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         {/* Search */}
-        <div className="relative flex-1">
-          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search by brand, model, or keywords (e.g. Tesla, Ducati, Vespa)..."
-            value={filters.search}
-            onChange={(e) => onChange({ search: e.target.value })}
-            className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:bg-white focus:outline-none dark:border-gray-800 dark:bg-gray-800/50 dark:text-white"
-          />
+        <div className="flex-1">
+          <label htmlFor="fleet-search" className="mb-1 block text-sm font-semibold">Make or model</label>
+          <div className="relative">
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              id="fleet-search"
+              type="search"
+              placeholder="For example, Tesla or Vespa"
+              value={filters.search}
+              onChange={(e) => onChange({ search: e.target.value })}
+              className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:outline-none dark:border-gray-800 dark:bg-gray-800/50 dark:text-white"
+            />
+          </div>
         </div>
 
         {/* Vehicle Type Quick Segmented Control */}
-        <div className="flex items-center rounded-xl bg-gray-100 p-1 dark:bg-gray-800 self-start lg:self-auto">
+        <div className="flex flex-wrap items-center rounded-xl bg-gray-100 p-1 dark:bg-gray-800 self-start lg:self-auto">
           <button
             onClick={() => onChange({ type: "" })}
-            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
+            aria-pressed={filters.type === ""}
+            className={`flex min-h-11 items-center gap-1.5 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 px-3.5 py-1.5 text-xs font-semibold transition-all ${
               filters.type === ""
                 ? "bg-white text-gray-900 shadow-sm dark:bg-gray-900 dark:text-white"
                 : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
@@ -59,7 +63,8 @@ export default function VehicleFilter({
           </button>
           <button
             onClick={() => onChange({ type: "FOUR_WHEELER" })}
-            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
+            aria-pressed={filters.type === "FOUR_WHEELER"}
+            className={`flex min-h-11 items-center gap-1.5 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 px-3.5 py-1.5 text-xs font-semibold transition-all ${
               filters.type === "FOUR_WHEELER"
                 ? "bg-white text-blue-600 shadow-sm dark:bg-gray-900 dark:text-blue-400"
                 : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
@@ -70,7 +75,8 @@ export default function VehicleFilter({
           </button>
           <button
             onClick={() => onChange({ type: "TWO_WHEELER" })}
-            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
+            aria-pressed={filters.type === "TWO_WHEELER"}
+            className={`flex min-h-11 items-center gap-1.5 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 px-3.5 py-1.5 text-xs font-semibold transition-all ${
               filters.type === "TWO_WHEELER"
                 ? "bg-white text-emerald-600 shadow-sm dark:bg-gray-900 dark:text-emerald-400"
                 : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
@@ -86,10 +92,10 @@ export default function VehicleFilter({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 border-t border-gray-100 dark:border-gray-800 pt-4">
         {/* City */}
         <div>
-          <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+          <label htmlFor="fleet-city" className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
             City
           </label>
-          <select
+          <select id="fleet-city"
             value={filters.city}
             onChange={(e) => onChange({ city: e.target.value })}
             className="w-full rounded-lg border border-gray-200 bg-white py-2 px-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200"
@@ -102,10 +108,10 @@ export default function VehicleFilter({
 
         {/* Fuel Type */}
         <div>
-          <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+          <label htmlFor="fleet-fuelType" className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
             Fuel Type
           </label>
-          <select
+          <select id="fleet-fuelType"
             value={filters.fuelType}
             onChange={(e) => onChange({ fuelType: e.target.value })}
             className="w-full rounded-lg border border-gray-200 bg-white py-2 px-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200"
@@ -120,10 +126,10 @@ export default function VehicleFilter({
 
         {/* Transmission */}
         <div>
-          <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+          <label htmlFor="fleet-transmission" className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
             Transmission
           </label>
-          <select
+          <select id="fleet-transmission"
             value={filters.transmission}
             onChange={(e) => onChange({ transmission: e.target.value })}
             className="w-full rounded-lg border border-gray-200 bg-white py-2 px-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200"
@@ -136,10 +142,10 @@ export default function VehicleFilter({
 
         {/* Min Price */}
         <div>
-          <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+          <label htmlFor="fleet-minPrice" className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
             Min Price ($)
           </label>
-          <input
+          <input id="fleet-minPrice"
             type="number"
             placeholder="0"
             value={filters.minPrice}
@@ -150,10 +156,10 @@ export default function VehicleFilter({
 
         {/* Max Price */}
         <div>
-          <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+          <label htmlFor="fleet-maxPrice" className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
             Max Price ($)
           </label>
-          <input
+          <input id="fleet-maxPrice"
             type="number"
             placeholder="500"
             value={filters.maxPrice}
@@ -164,10 +170,10 @@ export default function VehicleFilter({
 
         {/* Sort By */}
         <div>
-          <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+          <label htmlFor="fleet-sortBy" className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
             Sort By
           </label>
-          <select
+          <select id="fleet-sortBy"
             value={filters.sortBy}
             onChange={(e) => onChange({ sortBy: e.target.value })}
             className="w-full rounded-lg border border-gray-200 bg-white py-2 px-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200"
@@ -181,10 +187,10 @@ export default function VehicleFilter({
 
       {/* Footer bar with results count and reset */}
       <div className="flex items-center justify-between pt-1 text-xs text-gray-500 dark:text-gray-400">
-        <div>
+        <div role="status">
           {totalResults !== undefined && (
             <span>
-              Showing <strong className="text-gray-900 dark:text-white">{totalResults}</strong> available vehicles
+              Showing <strong className="text-gray-900 dark:text-white">{totalResults}</strong> matching vehicles
             </span>
           )}
         </div>
