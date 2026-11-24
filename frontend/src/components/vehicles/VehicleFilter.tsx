@@ -40,7 +40,7 @@ export default function VehicleFilter({
             <input
               id="fleet-search"
               type="search"
-              placeholder="For example, Tesla or Vespa"
+              placeholder="For example, Thar, Activa or Nexon EV"
               value={filters.search}
               onChange={(e) => onChange({ search: e.target.value })}
               className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:outline-none dark:border-gray-800 dark:bg-gray-800/50 dark:text-white"
@@ -101,8 +101,13 @@ export default function VehicleFilter({
             className="w-full rounded-lg border border-gray-200 bg-white py-2 px-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200"
           >
             <option value="">All Cities</option>
-            <option value="San Francisco">San Francisco, CA</option>
-            <option value="Austin">Austin, TX</option>
+            <option value="Bengaluru">Bengaluru, KA</option>
+            <option value="Mumbai">Mumbai, MH</option>
+            <option value="Delhi NCR">Delhi NCR</option>
+            <option value="Goa">Goa</option>
+            <option value="Hyderabad">Hyderabad, TS</option>
+            <option value="Pune">Pune, MH</option>
+            <option value="Jaipur">Jaipur, RJ</option>
           </select>
         </div>
 
@@ -117,10 +122,10 @@ export default function VehicleFilter({
             className="w-full rounded-lg border border-gray-200 bg-white py-2 px-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200"
           >
             <option value="">All Fuels</option>
-            <option value="ELECTRIC">Electric</option>
             <option value="PETROL">Petrol</option>
-            <option value="HYBRID">Hybrid</option>
             <option value="DIESEL">Diesel</option>
+            <option value="ELECTRIC">Electric (EV)</option>
+            <option value="HYBRID">Hybrid</option>
           </select>
         </div>
 
@@ -143,7 +148,7 @@ export default function VehicleFilter({
         {/* Min Price */}
         <div>
           <label htmlFor="fleet-minPrice" className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
-            Min Price ($)
+            Min Price (₹)
           </label>
           <input id="fleet-minPrice"
             type="number"
@@ -157,11 +162,11 @@ export default function VehicleFilter({
         {/* Max Price */}
         <div>
           <label htmlFor="fleet-maxPrice" className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
-            Max Price ($)
+            Max Price (₹)
           </label>
           <input id="fleet-maxPrice"
             type="number"
-            placeholder="500"
+            placeholder="10000"
             value={filters.maxPrice}
             onChange={(e) => onChange({ maxPrice: e.target.value })}
             className="w-full rounded-lg border border-gray-200 bg-white py-2 px-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200"

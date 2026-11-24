@@ -109,8 +109,13 @@ export default function HomePage() {
                 Pickup city
                 <select id="hero-city" className={searchControl} value={city} onChange={(e) => setCity(e.target.value)}>
                   <option value="">All cities</option>
-                  <option value="San Francisco">San Francisco, CA</option>
-                  <option value="Austin">Austin, TX</option>
+                  <option value="Bengaluru">Bengaluru, KA</option>
+                  <option value="Mumbai">Mumbai, MH</option>
+                  <option value="Delhi NCR">Delhi NCR</option>
+                  <option value="Goa">Goa</option>
+                  <option value="Hyderabad">Hyderabad, TS</option>
+                  <option value="Pune">Pune, MH</option>
+                  <option value="Jaipur">Jaipur, RJ</option>
                 </select>
               </label>
               <label className="grid min-w-0 gap-1.5 text-sm font-semibold" htmlFor="hero-start">
@@ -145,34 +150,34 @@ export default function HomePage() {
 
           {/* Fast Quick Links */}
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3 text-xs text-slate-400">
-            <span>Popular picks:</span>
+            <span>Popular Indian picks:</span>
             <Link
-              href="/vehicles?type=FOUR_WHEELER&category=SEDAN"
+              href="/vehicles?search=Thar"
               className="rounded-full bg-white/5 border border-white/10 px-3 py-1 hover:bg-white/10 text-white transition-colors flex items-center gap-1.5"
             >
               <Car className="h-3 w-3 text-blue-400" />
-              <span>Tesla Model 3</span>
+              <span>Mahindra Thar 4x4</span>
             </Link>
             <Link
-              href="/vehicles?type=FOUR_WHEELER&category=SUV"
+              href="/vehicles?search=Nexon"
               className="rounded-full bg-white/5 border border-white/10 px-3 py-1 hover:bg-white/10 text-white transition-colors flex items-center gap-1.5"
             >
               <Car className="h-3 w-3 text-blue-400" />
-              <span>BMW X5 Luxury</span>
+              <span>Tata Nexon EV</span>
             </Link>
             <Link
-              href="/vehicles?type=TWO_WHEELER&category=SPORTS_BIKE"
+              href="/vehicles?search=Classic"
               className="rounded-full bg-white/5 border border-white/10 px-3 py-1 hover:bg-white/10 text-white transition-colors flex items-center gap-1.5"
             >
               <Bike className="h-3 w-3 text-emerald-400" />
-              <span>Ducati Monster</span>
+              <span>Royal Enfield Classic 350</span>
             </Link>
             <Link
-              href="/vehicles?type=TWO_WHEELER&category=SCOOTER"
+              href="/vehicles?search=Activa"
               className="rounded-full bg-white/5 border border-white/10 px-3 py-1 hover:bg-white/10 text-white transition-colors flex items-center gap-1.5"
             >
               <Bike className="h-3 w-3 text-emerald-400" />
-              <span>Vespa GTS 300</span>
+              <span>Honda Activa 6G</span>
             </Link>
           </div>
         </div>

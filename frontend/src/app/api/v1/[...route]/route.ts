@@ -106,7 +106,7 @@ export async function GET(
         taxAmount,
         securityDeposit,
         totalAmount,
-        currency: vehicle.pricing.currency || "USD",
+        currency: vehicle.pricing.currency || "INR",
         breakdownText: `${totalDays} Day${totalDays > 1 ? "s" : ""} (${durationType.toLowerCase()} rate optimization applied)`,
       },
     });
