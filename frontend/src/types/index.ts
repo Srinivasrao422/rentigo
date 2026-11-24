@@ -114,6 +114,50 @@ export interface PriceQuote {
   gstRate?: number;
 }
 
+export interface HandoverRecord {
+  odometerKm: number;
+  fuelPercent: number;
+  otpVerified: boolean;
+  handedOverAt: string;
+  notes?: string;
+  dlVerified?: boolean;
+}
+
+export interface ReturnInspectionRecord {
+  odometerKm: number;
+  fuelPercent: number;
+  returnedAt: string;
+  fuelPenaltyFee: number;
+  damageFee: number;
+  lateFee: number;
+  depositRefunded: number;
+  notes?: string;
+}
+
+export interface MaintenanceBlock {
+  id: string;
+  vehicleId: string;
+  startDate: string;
+  endDate: string;
+  reason: string;
+  cost?: number;
+  serviceCenter?: string;
+  status: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED";
+  createdAt: string;
+  vehicle?: Vehicle;
+}
+
+export interface AuditLogItem {
+  id: string;
+  timestamp: string;
+  actorName: string;
+  actorRole: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  details: string;
+}
+
 export interface Booking {
   id: string;
   bookingNumber: string;
@@ -141,6 +185,8 @@ export interface Booking {
   dlNumber?: string;
   whatsappNumber?: string;
   gstAmount?: number;
+  handover?: HandoverRecord | null;
+  returnInspection?: ReturnInspectionRecord | null;
   vehicle?: Vehicle | null;
   customer?: {
     id?: string;

@@ -58,6 +58,49 @@ export interface StoreVehicle {
   };
 }
 
+export interface StoreHandoverRecord {
+  odometerKm: number;
+  fuelPercent: number;
+  otpVerified: boolean;
+  handedOverAt: string;
+  notes?: string;
+  dlVerified?: boolean;
+}
+
+export interface StoreReturnInspectionRecord {
+  odometerKm: number;
+  fuelPercent: number;
+  returnedAt: string;
+  fuelPenaltyFee: number;
+  damageFee: number;
+  lateFee: number;
+  depositRefunded: number;
+  notes?: string;
+}
+
+export interface StoreMaintenanceBlock {
+  id: string;
+  vehicleId: string;
+  startDate: string;
+  endDate: string;
+  reason: string;
+  cost?: number;
+  serviceCenter?: string;
+  status: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED";
+  createdAt: string;
+}
+
+export interface StoreAuditLog {
+  id: string;
+  timestamp: string;
+  actorName: string;
+  actorRole: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  details: string;
+}
+
 export interface StoreBooking {
   id: string;
   bookingNumber: string;
@@ -86,6 +129,8 @@ export interface StoreBooking {
   dlNumber?: string;
   whatsappNumber?: string;
   gstAmount?: number;
+  handover?: StoreHandoverRecord | null;
+  returnInspection?: StoreReturnInspectionRecord | null;
   vehicle?: StoreVehicle;
   customer?: {
     id: string;
@@ -953,6 +998,94 @@ export const INITIAL_BOOKINGS: StoreBooking[] = [
     notes: "Family EV road trip around Mysuru",
     createdAt: "2026-02-22T08:15:00Z",
   },
+  {
+    id: "bk-004",
+    bookingNumber: "RGO-2026-1004",
+    customerId: "u-customer-001",
+    vehicleId: "veh-001",
+    startDate: "2026-11-20T09:00:00Z",
+    endDate: "2026-11-26T18:00:00Z",
+    totalDays: 6,
+    durationType: "DAILY",
+    basePrice: 18000,
+    securityDeposit: 7500,
+    taxAmount: 3240,
+    discountAmount: 0,
+    totalAmount: 28740,
+    status: "ACTIVE",
+    paymentStatus: "PAID",
+    rejectionReason: null,
+    cancellationReason: null,
+    pickupLocation: "100 Feet Road, Indiranagar, Bengaluru",
+    dropoffLocation: "100 Feet Road, Indiranagar, Bengaluru",
+    notes: "Bengaluru to Chikmagalur coffee estate tour",
+    createdAt: "2026-11-18T10:30:00Z",
+    handover: {
+      odometerKm: 14250,
+      fuelPercent: 100,
+      otpVerified: true,
+      handedOverAt: "2026-11-20T09:15:00Z",
+      notes: "Clean vehicle exterior, spare tire and first-aid kit verified.",
+      dlVerified: true,
+    },
+  },
+];
+
+export const INITIAL_MAINTENANCE: StoreMaintenanceBlock[] = [
+  {
+    id: "maint-001",
+    vehicleId: "veh-005",
+    startDate: "2026-11-23T08:00:00Z",
+    endDate: "2026-11-28T18:00:00Z",
+    reason: "5,000 km Scheduled Service: Synthetic oil change, brake pad inspection & chain tension adjustment",
+    cost: 3200,
+    serviceCenter: "Royal Enfield Authorized Service Hub, Indiranagar",
+    status: "IN_PROGRESS",
+    createdAt: "2026-11-22T14:00:00Z",
+  },
+];
+
+export const INITIAL_AUDIT_LOGS: StoreAuditLog[] = [
+  {
+    id: "log-001",
+    timestamp: "2026-11-24T10:15:00Z",
+    actorName: "Priya Sharma (Admin)",
+    actorRole: "ADMIN",
+    action: "VEHICLE_APPROVED",
+    targetType: "VEHICLE",
+    targetId: "veh-001",
+    details: "Approved listing for Mahindra Thar 4x4 Hard Top after RC & Insurance check",
+  },
+  {
+    id: "log-002",
+    timestamp: "2026-11-23T16:45:00Z",
+    actorName: "DriveBliss Operations",
+    actorRole: "AGENCY_OWNER",
+    action: "HANDOVER_COMPLETED",
+    targetType: "BOOKING",
+    targetId: "bk-004",
+    details: "Completed station check-in with 4-digit OTP 8492. Initial odometer: 14,250 km, fuel 100%",
+  },
+  {
+    id: "log-003",
+    timestamp: "2026-11-22T14:00:00Z",
+    actorName: "DriveBliss Operations",
+    actorRole: "AGENCY_OWNER",
+    action: "MAINTENANCE_SCHEDULED",
+    targetType: "VEHICLE",
+    targetId: "veh-005",
+    details: "Scheduled 5,000 km service at Royal Enfield Indiranagar. Availability blocked atomically.",
+  },
+  {
+    id: "log-004",
+    timestamp: "2026-11-21T11:20:00Z",
+    actorName: "Priya Sharma (Admin)",
+    actorRole: "ADMIN",
+    action: "AGENCY_VERIFIED",
+    targetType: "AGENCY",
+    targetId: "ag-001",
+    details: "Verified partner agency GSTIN 29AABCU9603R1ZM & trade license",
+  },
 ];
 
 class MemoryStore {
@@ -960,6 +1093,8 @@ class MemoryStore {
   public agencies: StoreAgency[] = [...INITIAL_AGENCIES];
   public vehicles: StoreVehicle[] = [...INITIAL_VEHICLES];
   public bookings: StoreBooking[] = [...INITIAL_BOOKINGS];
+  public maintenanceBlocks: StoreMaintenanceBlock[] = [...INITIAL_MAINTENANCE];
+  public auditLogs: StoreAuditLog[] = [...INITIAL_AUDIT_LOGS];
 }
 
 declare global {

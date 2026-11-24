@@ -407,6 +407,20 @@ export async function GET(
     return jsonResponse({ success: true, count: serverStore.vehicles.length, data: serverStore.vehicles });
   }
 
+  // 14. Agency Maintenance Blocks: GET /agencies/maintenance
+  if (path === "agencies/maintenance") {
+    const enriched = serverStore.maintenanceBlocks.map((m) => ({
+      ...m,
+      vehicle: serverStore.vehicles.find((v) => v.id === m.vehicleId),
+    }));
+    return jsonResponse({ success: true, count: enriched.length, data: enriched });
+  }
+
+  // 15. Admin Audit Logs: GET /admin/audit-logs
+  if (path === "admin/audit-logs") {
+    return jsonResponse({ success: true, count: serverStore.auditLogs.length, data: serverStore.auditLogs });
+  }
+
   return jsonResponse({ message: `Route GET /api/v1/${path} not found` }, 404);
 }
 
@@ -661,13 +675,54 @@ export async function POST(
     const id = route[1];
     const vehicle = serverStore.vehicles.find((v) => v.id === id);
     if (!vehicle) return jsonResponse({ message: "Vehicle not found" }, 404);
+    
     vehicle.status = "MAINTENANCE";
-    return jsonResponse({ success: true, message: "Vehicle placed in maintenance", data: vehicle }, 201);
+    const newBlock = {
+      id: `maint-${Date.now()}`,
+      vehicleId: id,
+      startDate: body.startDate || new Date().toISOString(),
+      endDate: body.endDate || new Date(Date.now() + 86400000 * 3).toISOString(),
+      reason: body.reason || "Routine vehicle servicing & safety inspection",
+      cost: body.cost ? Number(body.cost) : undefined,
+      serviceCenter: body.serviceCenter || "Authorized Service Center",
+      status: "IN_PROGRESS" as const,
+      createdAt: new Date().toISOString(),
+    };
+    serverStore.maintenanceBlocks.unshift(newBlock);
+
+    serverStore.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      actorName: "Agency Fleet Manager",
+      actorRole: "AGENCY_OWNER",
+      action: "MAINTENANCE_SCHEDULED",
+      targetType: "VEHICLE",
+      targetId: id,
+      details: `Scheduled service for ${vehicle.brand} ${vehicle.model} (${vehicle.vehicleNumber}). Reason: ${newBlock.reason}`,
+    });
+
+    return jsonResponse({ success: true, message: "Vehicle placed in maintenance & dates blocked", data: newBlock }, 201);
   }
 
   // 7. Review: POST /bookings/:id/review
   if (route[0] === "bookings" && route[2] === "review") {
     return jsonResponse({ success: true, message: "Review submitted successfully" }, 201);
+  }
+
+  // 8. Admin Audit Log: POST /admin/audit-logs
+  if (path === "admin/audit-logs") {
+    const newLog = {
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      actorName: body.actorName || "Admin User",
+      actorRole: body.actorRole || "ADMIN",
+      action: body.action || "MANUAL_AUDIT_ENTRY",
+      targetType: body.targetType || "SYSTEM",
+      targetId: body.targetId || "system",
+      details: body.details || "Administrative event logged",
+    };
+    serverStore.auditLogs.unshift(newLog);
+    return jsonResponse({ success: true, data: newLog }, 201);
   }
 
   return jsonResponse({ message: `Route POST /api/v1/${path} not found` }, 404);
@@ -681,7 +736,121 @@ export async function PATCH(
   const path = route.join("/");
   const body = await request.json().catch(() => ({}));
 
-  // 1. Update Booking Status: PATCH /bookings/:id/status
+  // 1. Handover Check-In: PATCH /bookings/:id/handover
+  if (route[0] === "bookings" && route[2] === "handover") {
+    const bookingId = route[1];
+    const booking = serverStore.bookings.find((b) => b.id === bookingId);
+    if (!booking) return jsonResponse({ message: "Booking not found" }, 404);
+
+    booking.status = "ACTIVE";
+    booking.handover = {
+      odometerKm: Number(body.odometerKm) || 12000,
+      fuelPercent: Number(body.fuelPercent) || 100,
+      otpVerified: true,
+      handedOverAt: new Date().toISOString(),
+      notes: body.notes || "Vehicle handed over to customer in clean condition.",
+      dlVerified: body.dlVerified !== undefined ? !!body.dlVerified : true,
+    };
+
+    serverStore.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      actorName: "Agency Handover Staff",
+      actorRole: "AGENCY_OWNER",
+      action: "HANDOVER_COMPLETED",
+      targetType: "BOOKING",
+      targetId: booking.id,
+      details: `Vehicle handed over for booking #${booking.bookingNumber}. Start Odometer: ${booking.handover.odometerKm} km, Fuel: ${booking.handover.fuelPercent}%. Customer OTP Verified.`,
+    });
+
+    return jsonResponse({
+      success: true,
+      message: "Handover check-in completed! Rental is now ACTIVE.",
+      data: {
+        ...booking,
+        customer: sanitizeCustomer(serverStore.users.find((u) => u.id === booking.customerId)),
+      },
+    });
+  }
+
+  // 2. Return Inspection & Settlement: PATCH /bookings/:id/return
+  if (route[0] === "bookings" && route[2] === "return") {
+    const bookingId = route[1];
+    const booking = serverStore.bookings.find((b) => b.id === bookingId);
+    if (!booking) return jsonResponse({ message: "Booking not found" }, 404);
+
+    booking.status = "COMPLETED";
+    const fuelPenalty = Number(body.fuelPenaltyFee) || 0;
+    const damageFee = Number(body.damageFee) || 0;
+    const lateFee = Number(body.lateFee) || 0;
+    const netDepositRefund = Math.max(0, booking.securityDeposit - fuelPenalty - damageFee - lateFee);
+
+    booking.returnInspection = {
+      odometerKm: Number(body.odometerKm) || (booking.handover?.odometerKm ? booking.handover.odometerKm + 180 : 12180),
+      fuelPercent: Number(body.fuelPercent) || 100,
+      returnedAt: new Date().toISOString(),
+      fuelPenaltyFee: fuelPenalty,
+      damageFee: damageFee,
+      lateFee: lateFee,
+      depositRefunded: body.depositRefunded !== undefined ? Number(body.depositRefunded) : netDepositRefund,
+      notes: body.notes || "Vehicle inspection cleared. Security deposit release processed.",
+    };
+
+    const vehicle = serverStore.vehicles.find((v) => v.id === booking.vehicleId);
+    if (vehicle) {
+      vehicle.status = "AVAILABLE";
+    }
+
+    serverStore.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      actorName: "Agency Returns Inspector",
+      actorRole: "AGENCY_OWNER",
+      action: "RETURN_COMPLETED_DEPOSIT_SETTLED",
+      targetType: "BOOKING",
+      targetId: booking.id,
+      details: `Return inspected for #${booking.bookingNumber}. Return Odometer: ${booking.returnInspection.odometerKm} km. Security deposit refund of ₹${booking.returnInspection.depositRefunded} initiated.`,
+    });
+
+    return jsonResponse({
+      success: true,
+      message: "Return completed and deposit settlement recorded! Vehicle is now AVAILABLE.",
+      data: {
+        ...booking,
+        customer: sanitizeCustomer(serverStore.users.find((u) => u.id === booking.customerId)),
+      },
+    });
+  }
+
+  // 3. Admin Dispute Override: PATCH /admin/bookings/:id/override
+  if (route[0] === "admin" && route[1] === "bookings" && route[3] === "override") {
+    const bookingId = route[2];
+    const booking = serverStore.bookings.find((b) => b.id === bookingId);
+    if (!booking) return jsonResponse({ message: "Booking not found" }, 404);
+
+    const oldStatus = booking.status;
+    booking.status = body.status || booking.status;
+    if (body.paymentStatus) booking.paymentStatus = body.paymentStatus;
+
+    serverStore.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      actorName: "Platform Administrator",
+      actorRole: "ADMIN",
+      action: "BOOKING_STATUS_OVERRIDE",
+      targetType: "BOOKING",
+      targetId: booking.id,
+      details: `Status forced from ${oldStatus} to ${booking.status}. Reason: ${body.reason || "Dispute mediation resolution"}`,
+    });
+
+    return jsonResponse({
+      success: true,
+      message: `Booking #${booking.bookingNumber} overridden to ${booking.status}`,
+      data: booking,
+    });
+  }
+
+  // 4. Update Booking Status: PATCH /bookings/:id/status
   if (route[0] === "bookings" && route[2] === "status") {
     const bookingId = route[1];
     const booking = serverStore.bookings.find((b) => b.id === bookingId);
@@ -699,10 +868,21 @@ export async function PATCH(
       return jsonResponse({ message: "A rejection reason is required when declining a booking request" }, 400);
     }
 
+    const previousStatus = booking.status;
     booking.status = body.status;
     if (body.reason || body.rejectionReason) booking.rejectionReason = body.reason || body.rejectionReason;
     if (body.reason || body.cancellationReason) booking.cancellationReason = body.reason || body.cancellationReason;
-    // Payment status remains decoupled from rental status (do not set PAID on ACTIVE)
+
+    serverStore.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      actorName: "Agency Fleet Operator",
+      actorRole: "AGENCY_OWNER",
+      action: `BOOKING_${body.status}`,
+      targetType: "BOOKING",
+      targetId: booking.id,
+      details: `Booking #${booking.bookingNumber} transitioned from ${previousStatus} to ${body.status}${body.reason ? `. Reason: ${body.reason}` : ""}`,
+    });
 
     return jsonResponse({
       success: true,
@@ -714,34 +894,71 @@ export async function PATCH(
     });
   }
 
-  // 2. Admin User Status: PATCH /admin/users/:id/status
+  // 5. Admin User Status: PATCH /admin/users/:id/status
   if (route[0] === "admin" && route[1] === "users" && route[3] === "status") {
     const userId = route[2];
     const user = serverStore.users.find((u) => u.id === userId);
     if (!user) return jsonResponse({ message: "User not found" }, 404);
     user.isActive = body.isActive !== undefined ? body.isActive : !user.isActive;
+
+    serverStore.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      actorName: "Platform Administrator",
+      actorRole: "ADMIN",
+      action: user.isActive ? "USER_ACTIVATED" : "USER_DEACTIVATED",
+      targetType: "USER",
+      targetId: user.id,
+      details: `User account ${user.email} (${user.firstName} ${user.lastName}) was ${user.isActive ? "activated" : "deactivated"}`,
+    });
+
     return jsonResponse({ success: true, message: "User status updated", data: user });
   }
 
-  // 3. Admin Agency Approval: PATCH /admin/agencies/:id/approval
+  // 6. Admin Agency Approval: PATCH /admin/agencies/:id/approval
   if (route[0] === "admin" && route[1] === "agencies" && route[3] === "approval") {
     const agencyId = route[2];
     const agency = serverStore.agencies.find((a) => a.id === agencyId);
     if (!agency) return jsonResponse({ message: "Agency not found" }, 404);
     agency.isApproved = body.isApproved;
+
+    serverStore.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      actorName: "Platform Administrator",
+      actorRole: "ADMIN",
+      action: agency.isApproved ? "AGENCY_VERIFIED" : "AGENCY_SUSPENDED",
+      targetType: "AGENCY",
+      targetId: agency.id,
+      details: `Agency ${agency.name} (${agency.city}) was ${agency.isApproved ? "verified and approved" : "suspended"}`,
+    });
+
     return jsonResponse({ success: true, message: "Agency approval updated", data: agency });
   }
 
-  // 4. Vehicle Approval: PATCH /vehicles/:id/approval
+  // 7. Vehicle Approval: PATCH /vehicles/:id/approval
   if (route[0] === "vehicles" && route[2] === "approval") {
     const vehicleId = route[1];
     const vehicle = serverStore.vehicles.find((v) => v.id === vehicleId);
     if (!vehicle) return jsonResponse({ message: "Vehicle not found" }, 404);
     vehicle.approvalStatus = body.approvalStatus || (body.isApproved ? "APPROVED" : "REJECTED");
+    if (body.rejectionReason) vehicle.rejectionReason = body.rejectionReason;
+
+    serverStore.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      actorName: "Platform Administrator",
+      actorRole: "ADMIN",
+      action: vehicle.approvalStatus === "APPROVED" ? "VEHICLE_APPROVED" : "VEHICLE_REJECTED",
+      targetType: "VEHICLE",
+      targetId: vehicle.id,
+      details: `Listing for ${vehicle.brand} ${vehicle.model} was ${vehicle.approvalStatus.toLowerCase()}${body.rejectionReason ? `. Feedback: ${body.rejectionReason}` : ""}`,
+    });
+
     return jsonResponse({ success: true, message: "Vehicle approval status updated", data: vehicle });
   }
 
-  // 5. Vehicle Status: PATCH /vehicles/:id/status
+  // 8. Vehicle Status: PATCH /vehicles/:id/status
   if (route[0] === "vehicles" && route[2] === "status") {
     const vehicleId = route[1];
     const vehicle = serverStore.vehicles.find((v) => v.id === vehicleId);
@@ -751,4 +968,44 @@ export async function PATCH(
   }
 
   return jsonResponse({ message: `Route PATCH /api/v1/${path} not found` }, 404);
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ route: string[] }> }
+) {
+  const { route } = await params;
+  const path = route.join("/");
+
+  // 1. Remove Maintenance Block: DELETE /vehicles/:id/maintenance/:blockId
+  if (route[0] === "vehicles" && route[2] === "maintenance" && route.length >= 4) {
+    const vehicleId = route[1];
+    const blockId = route[3];
+
+    const idx = serverStore.maintenanceBlocks.findIndex((m) => m.id === blockId);
+    if (idx !== -1) {
+      serverStore.maintenanceBlocks.splice(idx, 1);
+    }
+
+    const remaining = serverStore.maintenanceBlocks.filter((m) => m.vehicleId === vehicleId);
+    const vehicle = serverStore.vehicles.find((v) => v.id === vehicleId);
+    if (vehicle && remaining.length === 0) {
+      vehicle.status = "AVAILABLE";
+    }
+
+    serverStore.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      actorName: "Agency Fleet Operator",
+      actorRole: "AGENCY_OWNER",
+      action: "MAINTENANCE_COMPLETED_EARLY",
+      targetType: "VEHICLE",
+      targetId: vehicleId,
+      details: `Maintenance block ${blockId} cleared early. Vehicle status restored to AVAILABLE.`,
+    });
+
+    return jsonResponse({ success: true, message: "Maintenance block removed and vehicle restored to AVAILABLE" });
+  }
+
+  return jsonResponse({ message: `Route DELETE /api/v1/${path} not found` }, 404);
 }
