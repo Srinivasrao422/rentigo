@@ -108,6 +108,9 @@ export interface PriceQuote {
   rateLabel: string;
   isAvailable: boolean;
   conflictReason?: string;
+  surgeApplied?: boolean;
+  surgePercentage?: number;
+  gstRate?: number;
 }
 
 export interface Booking {
@@ -131,6 +134,12 @@ export interface Booking {
   pickupLocation: string;
   dropoffLocation: string;
   notes?: string | null;
+  deliveryFee?: number;
+  isDelivery?: boolean;
+  paymentMethod?: string;
+  dlNumber?: string;
+  whatsappNumber?: string;
+  gstAmount?: number;
   vehicle?: Vehicle | null;
   customer?: {
     id?: string;

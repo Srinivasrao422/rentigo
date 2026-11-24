@@ -80,6 +80,12 @@ export interface StoreBooking {
   dropoffLocation: string;
   notes: string | null;
   createdAt: string;
+  deliveryFee?: number;
+  isDelivery?: boolean;
+  paymentMethod?: string;
+  dlNumber?: string;
+  whatsappNumber?: string;
+  gstAmount?: number;
   vehicle?: StoreVehicle;
   customer?: {
     id: string;

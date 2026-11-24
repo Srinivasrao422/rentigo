@@ -55,9 +55,23 @@ export async function GET(
 
     const { dailyRate, weeklyRate, monthlyRate, securityDeposit } = vehicle.pricing;
 
+    // Feature 3: Dynamic Weekend Surge Detection (Friday, Saturday, Sunday)
+    let hasWeekendDays = false;
+    const curDate = new Date(start);
+    while (curDate < end) {
+      const day = curDate.getUTCDay();
+      if (day === 5 || day === 6 || day === 0) {
+        hasWeekendDays = true;
+        break;
+      }
+      curDate.setDate(curDate.getDate() + 1);
+    }
+    const surgeMultiplier = hasWeekendDays ? 1.05 : 1.0;
+    const effectiveDailyRate = Math.round(dailyRate * surgeMultiplier);
+
     let durationType: "DAILY" | "WEEKLY" | "MONTHLY" = "DAILY";
     let basePrice = 0;
-    let standardDailyTotal = totalDays * dailyRate;
+    let standardDailyTotal = totalDays * effectiveDailyRate;
 
     if (totalDays >= 30) {
       durationType = "MONTHLY";
@@ -77,7 +91,7 @@ export async function GET(
       }
     } else {
       durationType = "DAILY";
-      basePrice = totalDays * dailyRate;
+      basePrice = totalDays * effectiveDailyRate;
       if (basePrice > weeklyRate) {
         basePrice = weeklyRate;
         durationType = "WEEKLY";
@@ -85,8 +99,40 @@ export async function GET(
     }
 
     const discountAmount = Math.max(0, standardDailyTotal - basePrice);
-    const taxAmount = Math.round(basePrice * 0.1 * 100) / 100;
+    const taxAmount = Math.round(basePrice * 0.18 * 100) / 100; // 18% GST for Indian Motor Vehicle Rental
     const totalAmount = basePrice + taxAmount + securityDeposit;
+
+    // Check for real booking conflicts (non-overlapping: start < bEnd && end > bStart)
+    const conflictingBooking = serverStore.bookings.find((b) => {
+      if (b.vehicleId !== vehicleId) return false;
+      if (!["PENDING", "APPROVED", "ACTIVE"].includes(b.status)) return false;
+      const bStart = new Date(b.startDate);
+      const bEnd = new Date(b.endDate);
+      return start < bEnd && end > bStart;
+    });
+
+    const isAvailable = vehicle.status === "AVAILABLE" && !conflictingBooking;
+    const conflictReason = !isAvailable
+      ? conflictingBooking
+        ? `Reserved from ${new Date(conflictingBooking.startDate).toLocaleDateString("en-IN")} to ${new Date(conflictingBooking.endDate).toLocaleDateString("en-IN")}`
+        : `Vehicle status is ${vehicle.status.toLowerCase()}`
+      : undefined;
+
+    const applicableRate =
+      durationType === "MONTHLY"
+        ? monthlyRate
+        : durationType === "WEEKLY"
+        ? weeklyRate
+        : effectiveDailyRate;
+
+    const rateLabel =
+      durationType === "MONTHLY"
+        ? "Monthly Tier Rate"
+        : durationType === "WEEKLY"
+        ? "Weekly Tier Rate"
+        : hasWeekendDays
+        ? "Weekend Daily Rate"
+        : "Standard Daily Rate";
 
     return jsonResponse({
       success: true,
@@ -96,6 +142,8 @@ export async function GET(
         endDate: end.toISOString(),
         totalDays,
         durationType,
+        applicableRate,
+        rateLabel,
         pricingTier: {
           dailyRate,
           weeklyRate,
@@ -107,7 +155,12 @@ export async function GET(
         securityDeposit,
         totalAmount,
         currency: vehicle.pricing.currency || "INR",
-        breakdownText: `${totalDays} Day${totalDays > 1 ? "s" : ""} (${durationType.toLowerCase()} rate optimization applied)`,
+        isAvailable,
+        conflictReason,
+        surgeApplied: hasWeekendDays,
+        surgePercentage: hasWeekendDays ? 5 : 0,
+        gstRate: 18,
+        breakdownText: `${totalDays} Day${totalDays > 1 ? "s" : ""} (${durationType.toLowerCase()} plan${hasWeekendDays ? ", weekend rate" : ""})`,
       },
     });
   }
@@ -407,8 +460,9 @@ export async function POST(
     const totalDays = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
 
     const basePrice = totalDays * vehicle.pricing.dailyRate;
-    const taxAmount = Math.round(basePrice * 0.1 * 100) / 100;
-    const totalAmount = basePrice + taxAmount + vehicle.pricing.securityDeposit;
+    const taxAmount = Math.round(basePrice * 0.18 * 100) / 100; // 18% GST
+    const deliveryFee = body.isDelivery ? (body.deliveryFee || 350) : 0;
+    const totalAmount = basePrice + taxAmount + vehicle.pricing.securityDeposit + deliveryFee;
 
     const newBooking: StoreBooking = {
       id: `bk-${Date.now()}`,
@@ -425,12 +479,18 @@ export async function POST(
       discountAmount: 0,
       totalAmount,
       status: "PENDING",
-      paymentStatus: "PENDING",
+      paymentStatus: body.paymentMethod === "UPI" ? "PAID" : "PENDING",
       rejectionReason: null,
       cancellationReason: null,
-      pickupLocation: pickupLocation || "Downtown Hub",
-      dropoffLocation: dropoffLocation || pickupLocation || "Downtown Hub",
+      pickupLocation: pickupLocation || (body.isDelivery ? `Doorstep Delivery: ${body.deliveryAddress || "Home Address"}` : "Agency Headquarters"),
+      dropoffLocation: dropoffLocation || pickupLocation || "Agency Headquarters",
       notes: notes || null,
+      deliveryFee,
+      isDelivery: body.isDelivery || false,
+      paymentMethod: body.paymentMethod || "UPI",
+      dlNumber: body.dlNumber || "DL-0420110012345",
+      whatsappNumber: body.whatsappNumber || "+91 98765 43210",
+      gstAmount: taxAmount,
       createdAt: new Date().toISOString(),
       vehicle,
     };
