@@ -10,7 +10,9 @@ export class AdminService {
         prisma.user.count(),
         prisma.agency.count(),
         prisma.vehicle.findMany({ where: { isDeleted: false } }),
-        prisma.booking.findMany(),
+        prisma.booking.findMany({
+          include: { vehicle: { select: { type: true } } },
+        }),
       ]);
 
       const totalVehicles = vehicles.length;
@@ -20,14 +22,26 @@ export class AdminService {
       const completedRentals = bookings.filter((b) => b.status === "COMPLETED").length;
       const approvedOrActive = bookings.filter((b) => ["APPROVED", "ACTIVE", "COMPLETED"].includes(b.status)).length;
 
-      const totalRevenue = bookings
-        .filter((b) => ["ACTIVE", "COMPLETED"].includes(b.status))
-        .reduce((sum, b) => sum + Number(b.totalAmount), 0);
+      let twoWheelerRevenue = 0;
+      let fourWheelerRevenue = 0;
+      let totalRevenue = 0;
+
+      for (const b of bookings) {
+        if (["ACTIVE", "COMPLETED"].includes(b.status)) {
+          const amount = Number(b.totalAmount);
+          totalRevenue += amount;
+          if (b.vehicle?.type === "TWO_WHEELER") {
+            twoWheelerRevenue += amount;
+          } else {
+            fourWheelerRevenue += amount;
+          }
+        }
+      }
 
       // Key metrics
       const utilizationRate = totalVehicles > 0 ? Math.round((activeRentals / totalVehicles) * 100) : 0;
       const conversionRate = bookings.length > 0 ? Math.round((approvedOrActive / bookings.length) * 100) : 0;
-      const conflictRate = 0; // Handled atomically by db transactions
+      const conflictRate = 0; // Enforced at serializable database boundary
       const monthlyActiveUsers = totalUsers; // active in current period
 
       return {
@@ -46,8 +60,12 @@ export class AdminService {
           monthlyActiveUsers,
         },
         revenueBreakdown: {
-          twoWheelerRevenue: Math.round(totalRevenue * 0.35 * 100) / 100,
-          fourWheelerRevenue: Math.round(totalRevenue * 0.65 * 100) / 100,
+          twoWheelerRevenue: Math.round(twoWheelerRevenue * 100) / 100,
+          fourWheelerRevenue: Math.round(fourWheelerRevenue * 100) / 100,
+        },
+        metadata: {
+          reportingPeriod: "All-Time to Date",
+          lastRefreshedAt: new Date().toISOString(),
         },
       };
     }
@@ -64,9 +82,22 @@ export class AdminService {
     const activeRentals = bookings.filter((b) => b.status === "ACTIVE").length;
     const approvedOrActive = bookings.filter((b) => ["APPROVED", "ACTIVE", "COMPLETED"].includes(b.status)).length;
 
-    const totalRevenue = bookings
-      .filter((b) => ["ACTIVE", "COMPLETED"].includes(b.status))
-      .reduce((sum, b) => sum + b.totalAmount, 0);
+    let twoWheelerRevenue = 0;
+    let fourWheelerRevenue = 0;
+    let totalRevenue = 0;
+
+    for (const b of bookings) {
+      if (["ACTIVE", "COMPLETED"].includes(b.status)) {
+        const v = vehicles.find((veh) => veh.id === b.vehicleId);
+        const amount = Number(b.totalAmount);
+        totalRevenue += amount;
+        if (v?.type === "TWO_WHEELER") {
+          twoWheelerRevenue += amount;
+        } else {
+          fourWheelerRevenue += amount;
+        }
+      }
+    }
 
     const utilizationRate = totalVehicles > 0 ? Math.round((activeRentals / totalVehicles) * 100) : 0;
     const conversionRate = bookings.length > 0 ? Math.round((approvedOrActive / bookings.length) * 100) : 0;
@@ -87,8 +118,12 @@ export class AdminService {
         monthlyActiveUsers: totalUsers,
       },
       revenueBreakdown: {
-        twoWheelerRevenue: Math.round(totalRevenue * 0.32 * 100) / 100,
-        fourWheelerRevenue: Math.round(totalRevenue * 0.68 * 100) / 100,
+        twoWheelerRevenue: Math.round(twoWheelerRevenue * 100) / 100,
+        fourWheelerRevenue: Math.round(fourWheelerRevenue * 100) / 100,
+      },
+      metadata: {
+        reportingPeriod: "All-Time to Date",
+        lastRefreshedAt: new Date().toISOString(),
       },
     };
   }

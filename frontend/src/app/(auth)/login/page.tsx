@@ -98,53 +98,55 @@ export default function LoginPage() {
           )}
         </div>
 
-        {/* 1-Click Demo Accounts Pill Box */}
-        <div className="rounded-2xl border border-blue-200/80 bg-blue-50/60 p-4 dark:border-blue-900 dark:bg-blue-950/30">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-blue-900 dark:text-blue-300 mb-2.5">
-            <Sparkles className="h-4 w-4 text-blue-600" />
-            <span>1-Click Test Drive (Pre-configured demo users)</span>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => handleDemoSignIn("CUSTOMER")}
-              disabled={isLoading}
-              className="flex flex-col items-center justify-center rounded-xl bg-white p-2.5 text-center shadow-sm hover:border-blue-500 hover:ring-2 hover:ring-blue-500/20 transition-all dark:bg-gray-900 border border-gray-200 dark:border-gray-800"
-            >
-              <User className="h-4 w-4 text-blue-600 mb-1" />
-              <span className="text-[11px] font-bold text-gray-800 dark:text-white">
-                Customer
-              </span>
-              <span className="text-[9px] text-gray-400">Alex Rider</span>
-            </button>
+        {/* 1-Click Demo Accounts Pill Box (Development & Staging only) */}
+        {process.env.NODE_ENV !== "production" && (
+          <div className="rounded-2xl border border-blue-200/80 bg-blue-50/60 p-4 dark:border-blue-900 dark:bg-blue-950/30">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-blue-900 dark:text-blue-300 mb-2.5">
+              <Sparkles className="h-4 w-4 text-blue-600" />
+              <span>1-Click Test Drive (Pre-configured demo users - Dev Only)</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => handleDemoSignIn("CUSTOMER")}
+                disabled={isLoading}
+                className="flex flex-col items-center justify-center rounded-xl bg-white p-2.5 text-center shadow-sm hover:border-blue-500 hover:ring-2 hover:ring-blue-500/20 transition-all dark:bg-gray-900 border border-gray-200 dark:border-gray-800"
+              >
+                <User className="h-4 w-4 text-blue-600 mb-1" />
+                <span className="text-[11px] font-bold text-gray-800 dark:text-white">
+                  Customer
+                </span>
+                <span className="text-[9px] text-gray-400">Alex Rider</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => handleDemoSignIn("AGENCY_OWNER")}
-              disabled={isLoading}
-              className="flex flex-col items-center justify-center rounded-xl bg-white p-2.5 text-center shadow-sm hover:border-emerald-500 hover:ring-2 hover:ring-emerald-500/20 transition-all dark:bg-gray-900 border border-gray-200 dark:border-gray-800"
-            >
-              <Building2 className="h-4 w-4 text-emerald-600 mb-1" />
-              <span className="text-[11px] font-bold text-gray-800 dark:text-white">
-                Agency
-              </span>
-              <span className="text-[9px] text-gray-400">Apex Rentals</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => handleDemoSignIn("AGENCY_OWNER")}
+                disabled={isLoading}
+                className="flex flex-col items-center justify-center rounded-xl bg-white p-2.5 text-center shadow-sm hover:border-emerald-500 hover:ring-2 hover:ring-emerald-500/20 transition-all dark:bg-gray-900 border border-gray-200 dark:border-gray-800"
+              >
+                <Building2 className="h-4 w-4 text-emerald-600 mb-1" />
+                <span className="text-[11px] font-bold text-gray-800 dark:text-white">
+                  Agency
+                </span>
+                <span className="text-[9px] text-gray-400">Apex Rentals</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => handleDemoSignIn("ADMIN")}
-              disabled={isLoading}
-              className="flex flex-col items-center justify-center rounded-xl bg-white p-2.5 text-center shadow-sm hover:border-purple-500 hover:ring-2 hover:ring-purple-500/20 transition-all dark:bg-gray-900 border border-gray-200 dark:border-gray-800"
-            >
-              <Shield className="h-4 w-4 text-purple-600 mb-1" />
-              <span className="text-[11px] font-bold text-gray-800 dark:text-white">
-                Admin
-              </span>
-              <span className="text-[9px] text-gray-400">Sarah J.</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => handleDemoSignIn("ADMIN")}
+                disabled={isLoading}
+                className="flex flex-col items-center justify-center rounded-xl bg-white p-2.5 text-center shadow-sm hover:border-purple-500 hover:ring-2 hover:ring-purple-500/20 transition-all dark:bg-gray-900 border border-gray-200 dark:border-gray-800"
+              >
+                <Shield className="h-4 w-4 text-purple-600 mb-1" />
+                <span className="text-[11px] font-bold text-gray-800 dark:text-white">
+                  Admin
+                </span>
+                <span className="text-[9px] text-gray-400">Sarah J.</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Main Login Card */}
         <div className="rounded-2xl border border-gray-200/80 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">

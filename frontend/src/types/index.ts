@@ -93,6 +93,7 @@ export interface Vehicle {
   agency?: Agency | null;
   averageRating?: number;
   totalReviews?: number;
+  reviews?: Review[];
   createdAt: string;
 }
 

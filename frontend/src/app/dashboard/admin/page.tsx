@@ -43,29 +43,37 @@ export default function AdminDashboardPage() {
   // Rejection modal
   const [rejectVehicleId, setRejectVehicleId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [lastRefreshed, setLastRefreshed] = useState<string | null>(null);
 
   const fetchData = async () => {
     setIsLoading(true);
-    try {
-      const [analyticsData, usersData, agenciesData, vehiclesData, bookingsData] =
-        await Promise.all([
-          apiRequest("/admin/analytics", { requiresAuth: true }),
-          apiRequest("/admin/users", { requiresAuth: true }),
-          apiRequest("/admin/agencies", { requiresAuth: true }),
-          apiRequest("/admin/vehicles", { requiresAuth: true }),
-          apiRequest("/bookings/all", { requiresAuth: true }),
-        ]);
+    const [analyticsRes, usersRes, agenciesRes, vehiclesRes, bookingsRes] =
+      await Promise.allSettled([
+        apiRequest("/admin/analytics", { requiresAuth: true }),
+        apiRequest("/admin/users", { requiresAuth: true }),
+        apiRequest("/admin/agencies", { requiresAuth: true }),
+        apiRequest("/admin/vehicles", { requiresAuth: true }),
+        apiRequest("/bookings/all", { requiresAuth: true }),
+      ]);
 
-      setAnalytics(analyticsData);
-      setUsersList(Array.isArray(usersData) ? usersData : []);
-      setAgenciesList(Array.isArray(agenciesData) ? agenciesData : []);
-      setVehiclesList(Array.isArray(vehiclesData) ? vehiclesData : []);
-      setAllBookings(Array.isArray(bookingsData) ? bookingsData : []);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to load admin telemetry");
-    } finally {
-      setIsLoading(false);
+    if (analyticsRes.status === "fulfilled") {
+      setAnalytics(analyticsRes.value);
     }
+    if (usersRes.status === "fulfilled") {
+      setUsersList(Array.isArray(usersRes.value) ? usersRes.value : []);
+    }
+    if (agenciesRes.status === "fulfilled") {
+      setAgenciesList(Array.isArray(agenciesRes.value) ? agenciesRes.value : []);
+    }
+    if (vehiclesRes.status === "fulfilled") {
+      setVehiclesList(Array.isArray(vehiclesRes.value) ? vehiclesRes.value : []);
+    }
+    if (bookingsRes.status === "fulfilled") {
+      setAllBookings(Array.isArray(bookingsRes.value) ? bookingsRes.value : []);
+    }
+
+    setLastRefreshed(new Date().toLocaleTimeString());
+    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -146,11 +154,21 @@ export default function AdminDashboardPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-            <span>Platform Online (0 Conflicts Detected)</span>
-          </span>
+        <div className="flex items-center gap-3">
+          {lastRefreshed && (
+            <span className="text-[11px] text-gray-400">
+              Last refresh: {lastRefreshed}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchData}
+            isLoading={isLoading}
+            className="text-xs h-8"
+          >
+            Refresh Telemetry
+          </Button>
         </div>
       </div>
 
@@ -162,7 +180,7 @@ export default function AdminDashboardPage() {
             <Percent className="h-4 w-4 text-purple-500" />
           </div>
           <div className="text-2xl font-black text-purple-600">
-            {analytics?.kpis?.utilizationRate ?? 40}%
+            {analytics?.kpis?.utilizationRate !== undefined ? `${analytics.kpis.utilizationRate}%` : "—"}
           </div>
           <div className="text-[10px] text-gray-400 mt-1">Active rentals / Total fleet</div>
         </div>
@@ -173,7 +191,7 @@ export default function AdminDashboardPage() {
             <TrendingUp className="h-4 w-4 text-blue-500" />
           </div>
           <div className="text-2xl font-black text-blue-600">
-            {analytics?.kpis?.conversionRate ?? 67}%
+            {analytics?.kpis?.conversionRate !== undefined ? `${analytics.kpis.conversionRate}%` : "—"}
           </div>
           <div className="text-[10px] text-gray-400 mt-1">Confirmed / Total requests</div>
         </div>
@@ -183,13 +201,15 @@ export default function AdminDashboardPage() {
             <span className="text-xs font-semibold uppercase tracking-wider">Conflict Rate</span>
             <Shield className="h-4 w-4 text-emerald-500" />
           </div>
-          <div className="text-2xl font-black text-emerald-600">0.0%</div>
+          <div className="text-2xl font-black text-emerald-600">
+            {analytics?.kpis?.conflictRate !== undefined ? `${analytics.kpis.conflictRate}%` : "0.0%"}
+          </div>
           <div className="text-[10px] text-emerald-600 mt-1 font-semibold">Zero Double Bookings</div>
         </div>
 
         <div className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <div className="flex items-center justify-between text-gray-500 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Active Users (MAU)</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Active Users</span>
             <Users className="h-4 w-4 text-amber-500" />
           </div>
           <div className="text-2xl font-black text-gray-900 dark:text-white">
@@ -204,7 +224,7 @@ export default function AdminDashboardPage() {
             <DollarSign className="h-4 w-4 text-emerald-500" />
           </div>
           <div className="text-2xl font-black text-emerald-600">
-            {formatCurrency(analytics?.overview?.totalRevenue ?? 1680)}
+            {analytics?.overview?.totalRevenue !== undefined ? formatCurrency(analytics.overview.totalRevenue) : "—"}
           </div>
           <div className="text-[10px] text-gray-400 mt-1">System-wide rental volume</div>
         </div>
@@ -283,27 +303,37 @@ export default function AdminDashboardPage() {
             <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400">
               Revenue By Vehicle Category
             </h3>
-            <div className="space-y-3">
-              <div>
-                <div className="flex justify-between text-xs font-semibold mb-1">
-                  <span>Four-Wheelers (Sedans & SUVs)</span>
-                  <span>68% ({formatCurrency(analytics?.revenueBreakdown?.fourWheelerRevenue ?? 1142)})</span>
-                </div>
-                <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-                  <div className="h-full bg-blue-600 rounded-full" style={{ width: "68%" }} />
-                </div>
-              </div>
+            {(() => {
+              const fourRev = analytics?.revenueBreakdown?.fourWheelerRevenue || 0;
+              const twoRev = analytics?.revenueBreakdown?.twoWheelerRevenue || 0;
+              const tot = fourRev + twoRev;
+              const fourPct = tot > 0 ? Math.round((fourRev / tot) * 100) : 0;
+              const twoPct = tot > 0 ? Math.round((twoRev / tot) * 100) : 0;
 
-              <div>
-                <div className="flex justify-between text-xs font-semibold mb-1">
-                  <span>Two-Wheelers (Bikes & Scooters)</span>
-                  <span>32% ({formatCurrency(analytics?.revenueBreakdown?.twoWheelerRevenue ?? 538)})</span>
+              return (
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex justify-between text-xs font-semibold mb-1">
+                      <span>Four-Wheelers (Sedans & SUVs)</span>
+                      <span>{fourPct}% ({formatCurrency(fourRev)})</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                      <div className="h-full bg-blue-600 rounded-full transition-all" style={{ width: `${fourPct}%` }} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs font-semibold mb-1">
+                      <span>Two-Wheelers (Bikes & Scooters)</span>
+                      <span>{twoPct}% ({formatCurrency(twoRev)})</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                      <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${twoPct}%` }} />
+                    </div>
+                  </div>
                 </div>
-                <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-                  <div className="h-full bg-emerald-500 rounded-full" style={{ width: "32%" }} />
-                </div>
-              </div>
-            </div>
+              );
+            })()}
           </div>
 
           <div className="rounded-2xl border border-gray-200/80 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900 space-y-4">

@@ -19,6 +19,8 @@ function VehiclesContent() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const pageSize = 9;
 
   // Filters state initialized from URL search params
   const [filters, setFilters] = useState({
@@ -51,6 +53,9 @@ function VehiclesContent() {
     setRequestFailed(false);
     const query = new URLSearchParams();
 
+    query.set("page", currentPage.toString());
+    query.set("limit", pageSize.toString());
+
     if (filters.search) query.set("search", filters.search);
     if (filters.type) query.set("type", filters.type);
     if (filters.category) query.set("category", filters.category);
@@ -76,15 +81,19 @@ function VehiclesContent() {
       query.set("endDate", rentalDateTime(endDate));
     }
 
-    apiRequest<Vehicle[]>(`/vehicles?${query.toString()}`, {
+    apiRequest<any>(`/vehicles?${query.toString()}`, {
       requiresAuth: false,
       signal: controller.signal,
     })
       .then((data) => {
         if (controller.signal.aborted) return;
-        const list = Array.isArray(data) ? data : [];
-        setVehicles(list);
-        setTotalCount(list.length);
+        if (data && Array.isArray(data.data)) {
+          setVehicles(data.data);
+          setTotalCount(data.total || data.data.length);
+        } else if (Array.isArray(data)) {
+          setVehicles(data);
+          setTotalCount(data.length);
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) setRequestFailed(true);
@@ -94,13 +103,15 @@ function VehiclesContent() {
       });
 
     return () => controller.abort();
-  }, [filters, dateQuery, startDate, endDate, attempt]);
+  }, [filters, dateQuery, startDate, endDate, attempt, currentPage]);
 
   const handleFilterChange = (updated: Partial<typeof filters>) => {
+    setCurrentPage(1);
     setFilters((prev) => ({ ...prev, ...updated }));
   };
 
   const handleResetFilters = () => {
+    setCurrentPage(1);
     setFilters({
       search: "",
       type: "",
@@ -182,10 +193,46 @@ function VehiclesContent() {
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {vehicles.map((v) => (
-              <VehicleCard key={v.id} vehicle={v} dateQuery={dateQuery} catalogQuery={catalogReturn} />
-            ))}
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {vehicles.map((v) => (
+                <VehicleCard key={v.id} vehicle={v} dateQuery={dateQuery} catalogQuery={catalogReturn} />
+              ))}
+            </div>
+
+            {/* Catalog Pagination Controls */}
+            {!isLoading && !requestFailed && totalCount > pageSize && (
+              <div className="flex items-center justify-center gap-4 pt-4 border-t border-gray-100 dark:border-gray-800">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage <= 1}
+                  onClick={() => {
+                    setCurrentPage((p) => Math.max(1, p - 1));
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="text-xs font-semibold"
+                >
+                  Previous Page
+                </Button>
+                <span className="text-xs font-medium text-gray-500">
+                  Page <strong className="text-gray-900 dark:text-white">{currentPage}</strong> of{" "}
+                  <strong className="text-gray-900 dark:text-white">{Math.ceil(totalCount / pageSize)}</strong>
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= Math.ceil(totalCount / pageSize)}
+                  onClick={() => {
+                    setCurrentPage((p) => p + 1);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="text-xs font-semibold"
+                >
+                  Next Page
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

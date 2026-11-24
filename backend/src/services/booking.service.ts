@@ -11,6 +11,36 @@ import {
 import { BookingStatus, AuthenticatedUser } from "../types/index.js";
 import { NotificationService } from "./notification.service.js";
 
+export const CUSTOMER_SAFE_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+  phone: true,
+  avatarUrl: true,
+};
+
+export function sanitizeCustomer(user: any) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    phone: user.phone || null,
+    avatarUrl: user.avatarUrl || null,
+  };
+}
+
+export const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
+  PENDING: ["APPROVED", "REJECTED", "CANCELLED"],
+  APPROVED: ["ACTIVE", "CANCELLED"],
+  ACTIVE: ["COMPLETED"],
+  REJECTED: [],
+  CANCELLED: [],
+  COMPLETED: [],
+};
+
 export class BookingService {
   /**
    * Check if vehicle is available between two dates
@@ -27,12 +57,16 @@ export class BookingService {
     }
 
     if (await isPostgresConnected()) {
-      // 1. Check vehicle operational status
+      // 1. Check vehicle operational status and agency eligibility
       const vehicle = await prisma.vehicle.findUnique({
         where: { id: vehicleId },
+        include: { agency: true },
       });
       if (!vehicle || vehicle.isDeleted || vehicle.status !== "AVAILABLE" || vehicle.approvalStatus !== "APPROVED") {
         return { available: false, conflictReason: "Vehicle is currently not available for rent." };
+      }
+      if (!vehicle.agency || !vehicle.agency.isApproved) {
+        return { available: false, conflictReason: "Rental agency is currently not authorized." };
       }
 
       // 2. Check overlapping bookings (PENDING, APPROVED, ACTIVE)
@@ -75,6 +109,10 @@ export class BookingService {
     const vehicle = memoryStore.vehicles.find((v) => v.id === vehicleId);
     if (!vehicle || vehicle.isDeleted || vehicle.status !== "AVAILABLE" || vehicle.approvalStatus !== "APPROVED") {
       return { available: false, conflictReason: "Vehicle is currently not available for rent." };
+    }
+    const agency = memoryStore.agencies.find((a) => a.id === vehicle.agencyId);
+    if (!agency || !agency.isApproved) {
+      return { available: false, conflictReason: "Rental agency is currently not authorized." };
     }
 
     const conflictingBooking = memoryStore.bookings.find(
@@ -121,10 +159,10 @@ export class BookingService {
     if (await isPostgresConnected()) {
       const vehicle = await prisma.vehicle.findUnique({
         where: { id: vehicleId },
-        include: { pricing: true },
+        include: { pricing: true, agency: true },
       });
-      if (!vehicle || !vehicle.pricing) {
-        throw ApiError.notFound("Vehicle pricing not found");
+      if (!vehicle || !vehicle.pricing || vehicle.isDeleted || vehicle.status !== "AVAILABLE" || vehicle.approvalStatus !== "APPROVED" || !vehicle.agency?.isApproved) {
+        throw ApiError.notFound("Vehicle not eligible for quote or booking");
       }
 
       const breakdown = calculateBestPrice(startDate, endDate, {
@@ -140,7 +178,10 @@ export class BookingService {
 
     // Memory fallback
     const vehicle = memoryStore.vehicles.find((v) => v.id === vehicleId);
-    if (!vehicle) throw ApiError.notFound("Vehicle pricing not found");
+    const agency = vehicle ? memoryStore.agencies.find((a) => a.id === vehicle.agencyId) : null;
+    if (!vehicle || !vehicle.pricing || vehicle.isDeleted || vehicle.status !== "AVAILABLE" || vehicle.approvalStatus !== "APPROVED" || !agency?.isApproved) {
+      throw ApiError.notFound("Vehicle not eligible for quote or booking");
+    }
 
     const breakdown = calculateBestPrice(startDate, endDate, {
       dailyRate: vehicle.pricing.dailyRate,
@@ -176,82 +217,102 @@ export class BookingService {
     }
 
     if (await isPostgresConnected()) {
-      // Execute within PostgreSQL Serializable / Interactive Transaction to prevent race conditions
-      const result = await prisma.$transaction(async (tx) => {
-        // 1. Re-check availability under lock
-        const conflictingBooking = await tx.booking.findFirst({
-          where: {
-            vehicleId: data.vehicleId,
-            status: { in: ["PENDING", "APPROVED", "ACTIVE"] },
-            AND: [{ startDate: { lt: end } }, { endDate: { gt: start } }],
-          },
-        });
+      // Execute within PostgreSQL Serializable Transaction to prevent race conditions & double-booking
+      const result = await prisma.$transaction(
+        async (tx) => {
+          // 1. Fetch vehicle and re-verify all eligibility under transaction boundary
+          const vehicle = await tx.vehicle.findUnique({
+            where: { id: data.vehicleId },
+            include: { pricing: true, agency: true },
+          });
 
-        if (conflictingBooking) {
-          throw ApiError.conflict(
-            `Booking conflict: Vehicle was just reserved for the selected dates (${new Date(conflictingBooking.startDate).toLocaleDateString()} - ${new Date(conflictingBooking.endDate).toLocaleDateString()}). Please select different dates.`
-          );
-        }
+          if (!vehicle || vehicle.isDeleted) {
+            throw ApiError.notFound("Vehicle not found or listing has been archived");
+          }
 
-        const maintenanceConflict = await tx.maintenanceBlock.findFirst({
-          where: {
-            vehicleId: data.vehicleId,
-            status: { in: ["SCHEDULED", "IN_PROGRESS"] },
-            AND: [{ startDate: { lt: end } }, { endDate: { gt: start } }],
-          },
-        });
+          if (vehicle.status !== "AVAILABLE") {
+            throw ApiError.badRequest(`Vehicle is currently not available for rent (status: ${vehicle.status})`);
+          }
 
-        if (maintenanceConflict) {
-          throw ApiError.conflict("Vehicle is blocked for maintenance during these dates.");
-        }
+          if (vehicle.approvalStatus !== "APPROVED") {
+            throw ApiError.badRequest("Vehicle listing is pending administrator approval and cannot be reserved");
+          }
 
-        // 2. Fetch pricing and calculate amounts
-        const vehicle = await tx.vehicle.findUnique({
-          where: { id: data.vehicleId },
-          include: { pricing: true, agency: true },
-        });
+          if (!vehicle.agency || !vehicle.agency.isApproved) {
+            throw ApiError.badRequest("Rental agency is currently suspended or unauthorized to take bookings");
+          }
 
-        if (!vehicle || !vehicle.pricing) {
-          throw ApiError.notFound("Vehicle not found");
-        }
+          if (!vehicle.pricing) {
+            throw ApiError.badRequest("Vehicle pricing schedule is not configured");
+          }
 
-        const quote = calculateBestPrice(start, end, {
-          dailyRate: Number(vehicle.pricing.dailyRate),
-          weeklyRate: Number(vehicle.pricing.weeklyRate),
-          monthlyRate: Number(vehicle.pricing.monthlyRate),
-          securityDeposit: Number(vehicle.pricing.securityDeposit),
-        });
+          // 2. Re-check overlapping bookings (PENDING, APPROVED, ACTIVE) under serializable lock
+          const conflictingBooking = await tx.booking.findFirst({
+            where: {
+              vehicleId: data.vehicleId,
+              status: { in: ["PENDING", "APPROVED", "ACTIVE"] },
+              AND: [{ startDate: { lt: end } }, { endDate: { gt: start } }],
+            },
+          });
 
-        const bookingNumber = `RGO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+          if (conflictingBooking) {
+            throw ApiError.conflict(
+              `Booking conflict: Vehicle is already reserved for the selected dates (${new Date(conflictingBooking.startDate).toLocaleDateString()} - ${new Date(conflictingBooking.endDate).toLocaleDateString()}). Please select different dates.`
+            );
+          }
 
-        const booking = await tx.booking.create({
-          data: {
-            bookingNumber,
-            customerId,
-            vehicleId: data.vehicleId,
-            startDate: start,
-            endDate: end,
-            totalDays: quote.totalDays,
-            durationType: quote.durationType,
-            basePrice: quote.basePrice,
-            securityDeposit: quote.securityDeposit,
-            taxAmount: quote.taxAmount,
-            discountAmount: quote.discountAmount,
-            totalAmount: quote.totalAmount,
-            status: "PENDING",
-            paymentStatus: "PENDING",
-            pickupLocation: data.pickupLocation,
-            dropoffLocation: data.dropoffLocation,
-            notes: data.notes,
-          },
-          include: {
-            vehicle: { include: { pricing: true, images: true, agency: true } },
-            customer: { select: { firstName: true, lastName: true, email: true, phone: true } },
-          },
-        });
+          // 3. Re-check maintenance blocks under transaction
+          const maintenanceConflict = await tx.maintenanceBlock.findFirst({
+            where: {
+              vehicleId: data.vehicleId,
+              status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+              AND: [{ startDate: { lt: end } }, { endDate: { gt: start } }],
+            },
+          });
 
-        return { booking, customer: booking.customer, vehicle, agency: vehicle.agency };
-      });
+          if (maintenanceConflict) {
+            throw ApiError.conflict(`Vehicle is blocked for maintenance: ${maintenanceConflict.reason}`);
+          }
+
+          const quote = calculateBestPrice(start, end, {
+            dailyRate: Number(vehicle.pricing.dailyRate),
+            weeklyRate: Number(vehicle.pricing.weeklyRate),
+            monthlyRate: Number(vehicle.pricing.monthlyRate),
+            securityDeposit: Number(vehicle.pricing.securityDeposit),
+          });
+
+          const bookingNumber = `RGO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+          const booking = await tx.booking.create({
+            data: {
+              bookingNumber,
+              customerId,
+              vehicleId: data.vehicleId,
+              startDate: start,
+              endDate: end,
+              totalDays: quote.totalDays,
+              durationType: quote.durationType,
+              basePrice: quote.basePrice,
+              securityDeposit: quote.securityDeposit,
+              taxAmount: quote.taxAmount,
+              discountAmount: quote.discountAmount,
+              totalAmount: quote.totalAmount,
+              status: "PENDING",
+              paymentStatus: "PENDING",
+              pickupLocation: data.pickupLocation,
+              dropoffLocation: data.dropoffLocation,
+              notes: data.notes,
+            },
+            include: {
+              vehicle: { include: { pricing: true, images: true, agency: true } },
+              customer: { select: CUSTOMER_SAFE_SELECT },
+            },
+          });
+
+          return { booking, customer: booking.customer, vehicle, agency: vehicle.agency };
+        },
+        { isolationLevel: "Serializable" as any }
+      );
 
       // Fire asynchronous email notification
       NotificationService.notifyBookingCreated(result.booking, result.customer, result.vehicle, result.agency);
@@ -260,18 +321,21 @@ export class BookingService {
     }
 
     // Memory transaction fallback with atomic conflict check
+    const vehicle = memoryStore.vehicles.find((v) => v.id === data.vehicleId);
+    if (!vehicle || vehicle.isDeleted) throw ApiError.notFound("Vehicle not found");
+    if (vehicle.status !== "AVAILABLE") throw ApiError.badRequest("Vehicle is currently not available");
+    if (vehicle.approvalStatus !== "APPROVED") throw ApiError.badRequest("Vehicle listing is pending approval");
+
+    const agency = memoryStore.agencies.find((a) => a.id === vehicle.agencyId);
+    if (!agency || !agency.isApproved) throw ApiError.badRequest("Rental agency is currently unauthorized");
+
     const availability = await this.checkAvailability(data.vehicleId, start, end);
     if (!availability.available) {
       throw ApiError.conflict(availability.conflictReason || "Vehicle unavailable for these dates.");
     }
 
-    const vehicle = memoryStore.vehicles.find((v) => v.id === data.vehicleId);
-    if (!vehicle) throw ApiError.notFound("Vehicle not found");
-
     const customer = memoryStore.users.find((u) => u.id === customerId);
     if (!customer) throw ApiError.notFound("Customer not found");
-
-    const agency = memoryStore.agencies.find((a) => a.id === vehicle.agencyId);
 
     const quote = calculateBestPrice(start, end, {
       dailyRate: vehicle.pricing.dailyRate,
@@ -310,20 +374,17 @@ export class BookingService {
 
     memoryStore.bookings.unshift(newBooking);
 
+    const safeCustomer = sanitizeCustomer(customer)!;
+
     // Notify agency
     if (agency) {
-      NotificationService.notifyBookingCreated(newBooking, customer, vehicle, agency);
+      NotificationService.notifyBookingCreated(newBooking, safeCustomer, vehicle, agency);
     }
 
     return {
       ...newBooking,
       vehicle: { ...vehicle, agency },
-      customer: {
-        firstName: customer.firstName,
-        lastName: customer.lastName,
-        email: customer.email,
-        phone: customer.phone,
-      },
+      customer: safeCustomer,
     };
   }
 
@@ -365,7 +426,7 @@ export class BookingService {
       return prisma.booking.findMany({
         where: { vehicle: { agencyId } },
         include: {
-          customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+          customer: { select: CUSTOMER_SAFE_SELECT },
           vehicle: { include: { pricing: true, images: true } },
           review: true,
         },
@@ -384,9 +445,7 @@ export class BookingService {
         const review = memoryStore.reviews.find((r) => r.bookingId === b.id);
         return {
           ...b,
-          customer: customer
-            ? { id: customer.id, firstName: customer.firstName, lastName: customer.lastName, email: customer.email, phone: customer.phone }
-            : null,
+          customer: sanitizeCustomer(customer),
           vehicle,
           review: review || null,
         };
@@ -398,7 +457,7 @@ export class BookingService {
     if (await isPostgresConnected()) {
       return prisma.booking.findMany({
         include: {
-          customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+          customer: { select: CUSTOMER_SAFE_SELECT },
           vehicle: { include: { pricing: true, images: true, agency: true } },
         },
         orderBy: { createdAt: "desc" },
@@ -412,7 +471,7 @@ export class BookingService {
         const agency = vehicle ? memoryStore.agencies.find((a) => a.id === vehicle.agencyId) : null;
         return {
           ...b,
-          customer,
+          customer: sanitizeCustomer(customer),
           vehicle: vehicle ? { ...vehicle, agency } : null,
         };
       })
@@ -428,10 +487,18 @@ export class BookingService {
     if (await isPostgresConnected()) {
       const booking = await prisma.booking.findUnique({
         where: { id: bookingId },
-        include: { vehicle: { include: { agency: true } }, customer: true },
+        include: { vehicle: { include: { agency: true } }, customer: { select: CUSTOMER_SAFE_SELECT } },
       });
 
       if (!booking) throw ApiError.notFound("Booking not found");
+
+      // Validate transition matrix
+      const allowedNextStatuses = VALID_STATUS_TRANSITIONS[booking.status] || [];
+      if (!allowedNextStatuses.includes(status)) {
+        throw ApiError.badRequest(
+          `Invalid status transition from ${booking.status} to ${status}. Allowed next states: ${allowedNextStatuses.join(", ") || "none"}`
+        );
+      }
 
       // Authorization checks
       if (user.role === "CUSTOMER") {
@@ -441,24 +508,32 @@ export class BookingService {
         if (status !== "CANCELLED") {
           throw ApiError.badRequest("Customers may only cancel pending or confirmed bookings");
         }
-        if (["ACTIVE", "COMPLETED"].includes(booking.status)) {
-          throw ApiError.badRequest("Cannot cancel an active or completed rental");
+        if (!reason) {
+          reason = "Customer cancelled reservation request";
         }
       } else if (user.role === "AGENCY_OWNER") {
         if (booking.vehicle.agencyId !== user.agencyId) {
           throw ApiError.forbidden("Access denied: You do not own this vehicle");
         }
+        if (status === "REJECTED" && !reason) {
+          throw ApiError.badRequest("A rejection reason is required when declining a booking request");
+        }
+      } else if (user.role === "ADMIN") {
+        if ((status === "REJECTED" || status === "CANCELLED") && !reason) {
+          reason = `Administrative action by ${user.email}`;
+        }
       }
 
+      // Explicitly separate rental status from payment status.
+      // Payment status is NOT marked as PAID when status becomes ACTIVE.
       const updated = await prisma.booking.update({
         where: { id: bookingId },
         data: {
           status: status as any,
           ...(status === "REJECTED" ? { rejectionReason: reason } : {}),
           ...(status === "CANCELLED" ? { cancellationReason: reason } : {}),
-          ...(status === "ACTIVE" ? { paymentStatus: "PAID" } : {}),
         },
-        include: { vehicle: true, customer: true },
+        include: { vehicle: true, customer: { select: CUSTOMER_SAFE_SELECT } },
       });
 
       NotificationService.notifyBookingStatusChange(
@@ -479,32 +554,49 @@ export class BookingService {
     const vehicle = memoryStore.vehicles.find((v) => v.id === booking.vehicleId);
     const customer = memoryStore.users.find((u) => u.id === booking.customerId);
 
+    // Validate transition matrix
+    const allowedNextStatuses = VALID_STATUS_TRANSITIONS[booking.status] || [];
+    if (!allowedNextStatuses.includes(status)) {
+      throw ApiError.badRequest(
+        `Invalid status transition from ${booking.status} to ${status}. Allowed next states: ${allowedNextStatuses.join(", ") || "none"}`
+      );
+    }
+
     if (user.role === "CUSTOMER") {
       if (booking.customerId !== user.id) throw ApiError.forbidden("You do not own this booking");
       if (status !== "CANCELLED") throw ApiError.badRequest("Customers can only cancel bookings");
+      if (!reason) reason = "Customer cancelled reservation";
     } else if (user.role === "AGENCY_OWNER") {
       if (!vehicle || vehicle.agencyId !== user.agencyId) {
         throw ApiError.forbidden("Access denied");
+      }
+      if (status === "REJECTED" && !reason) {
+        throw ApiError.badRequest("A rejection reason is required when declining a booking request");
       }
     }
 
     booking.status = status;
     if (status === "REJECTED") booking.rejectionReason = reason || null;
     if (status === "CANCELLED") booking.cancellationReason = reason || null;
-    if (status === "ACTIVE") booking.paymentStatus = "PAID";
+    // Payment status remains separated from rental status
     booking.updatedAt = new Date();
 
-    if (customer && vehicle) {
+    const safeCustomer = sanitizeCustomer(customer);
+    if (safeCustomer && vehicle) {
       NotificationService.notifyBookingStatusChange(
         booking,
-        customer,
+        safeCustomer,
         vehicle,
         status,
         reason
       );
     }
 
-    return booking;
+    return {
+      ...booking,
+      customer: safeCustomer,
+      vehicle,
+    };
   }
 
   static async createReview(
@@ -546,7 +638,7 @@ export class BookingService {
       vehicleId: booking.vehicleId,
       customerId,
       rating: data.rating,
-      comment: data.comment || null,
+      comment: data.comment || "",
       createdAt: new Date(),
     };
     memoryStore.reviews.push(review);

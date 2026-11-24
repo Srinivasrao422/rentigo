@@ -64,8 +64,14 @@ export default function VehicleCard({ vehicle, dateQuery = "", catalogQuery = ""
         </div>
 
         <div className="absolute top-3 right-3 flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-xs font-bold text-gray-900 shadow-sm backdrop-blur-sm dark:bg-gray-950/90 dark:text-white">
-          <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-          <span>{vehicle.averageRating || 4.9}</span>
+          {vehicle.averageRating && vehicle.averageRating > 0 ? (
+            <>
+              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+              <span>{vehicle.averageRating}</span>
+            </>
+          ) : (
+            <span className="text-[10px] text-gray-500 font-semibold px-1">New</span>
+          )}
         </div>
       </div>
 

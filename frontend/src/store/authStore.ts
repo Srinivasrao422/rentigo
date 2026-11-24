@@ -128,6 +128,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   quickDemoLogin: async (role: UserRole) => {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Demo personas are disabled in production.");
+    }
+
     let email = "alex.rider@example.com";
     let pass = "Customer@SecurePass2026!";
 

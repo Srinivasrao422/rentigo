@@ -25,7 +25,7 @@ export class VehicleService {
           description: data.description,
           features: data.features || [],
           status: "AVAILABLE",
-          approvalStatus: "APPROVED", // Auto-approved or PENDING
+          approvalStatus: "PENDING", // Newly listed vehicles must go through admin review
           pricing: {
             create: {
               dailyRate: data.pricing.dailyRate,
@@ -70,7 +70,7 @@ export class VehicleService {
       description: data.description,
       features: data.features || [],
       status: "AVAILABLE" as const,
-      approvalStatus: "APPROVED" as const,
+      approvalStatus: "PENDING" as const,
       rejectionReason: null,
       isDeleted: false,
       createdAt: new Date(),
@@ -239,6 +239,10 @@ export class VehicleService {
         isDeleted: false,
         approvalStatus: "APPROVED",
         status: "AVAILABLE",
+        agency: {
+          isApproved: true,
+          ...(query.city ? { city: { contains: query.city, mode: "insensitive" } } : {}),
+        },
       };
 
       if (query.type) where.type = query.type;
@@ -253,10 +257,6 @@ export class VehicleService {
           { model: { contains: query.search, mode: "insensitive" } },
           { description: { contains: query.search, mode: "insensitive" } },
         ];
-      }
-
-      if (query.city) {
-        where.agency = { city: { contains: query.city, mode: "insensitive" } };
       }
 
       if (query.minPrice || query.maxPrice) {
@@ -311,9 +311,9 @@ export class VehicleService {
         vehicles: vehicles.map((v) => {
           const avgRating =
             v.reviews.length > 0
-              ? v.reviews.reduce((acc, r) => acc + r.rating, 0) / v.reviews.length
-              : 4.8;
-          return { ...v, averageRating: Math.round(avgRating * 10) / 10, totalReviews: v.reviews.length };
+              ? Math.round((v.reviews.reduce((acc, r) => acc + r.rating, 0) / v.reviews.length) * 10) / 10
+              : 0;
+          return { ...v, averageRating: avgRating, totalReviews: v.reviews.length };
         }),
         meta: {
           total,
@@ -325,9 +325,10 @@ export class VehicleService {
     }
 
     // Memory fallback with complete filtering logic
-    let filtered = memoryStore.vehicles.filter(
-      (v) => !v.isDeleted && v.approvalStatus === "APPROVED" && v.status === "AVAILABLE"
-    );
+    let filtered = memoryStore.vehicles.filter((v) => {
+      const agency = memoryStore.agencies.find((a) => a.id === v.agencyId);
+      return !v.isDeleted && v.approvalStatus === "APPROVED" && v.status === "AVAILABLE" && agency?.isApproved;
+    });
 
     if (query.type) {
       filtered = filtered.filter((v) => v.type === query.type);
@@ -409,15 +410,15 @@ export class VehicleService {
       const vehicleReviews = memoryStore.reviews.filter((r) => r.vehicleId === v.id);
       const avgRating =
         vehicleReviews.length > 0
-          ? vehicleReviews.reduce((sum, r) => sum + r.rating, 0) / vehicleReviews.length
-          : 4.9;
+          ? Math.round((vehicleReviews.reduce((sum, r) => sum + r.rating, 0) / vehicleReviews.length) * 10) / 10
+          : 0;
 
       return {
         ...v,
         agency: agency
           ? { id: agency.id, name: agency.name, city: agency.city, state: agency.state, logoUrl: agency.logoUrl }
           : null,
-        averageRating: Math.round(avgRating * 10) / 10,
+        averageRating: avgRating,
         totalReviews: vehicleReviews.length,
       };
     });
@@ -459,10 +460,10 @@ export class VehicleService {
 
       const avgRating =
         vehicle.reviews.length > 0
-          ? vehicle.reviews.reduce((acc, r) => acc + r.rating, 0) / vehicle.reviews.length
-          : 4.9;
+          ? Math.round((vehicle.reviews.reduce((acc, r) => acc + r.rating, 0) / vehicle.reviews.length) * 10) / 10
+          : 0;
 
-      return { ...vehicle, averageRating: Math.round(avgRating * 10) / 10 };
+      return { ...vehicle, averageRating: avgRating };
     }
 
     const veh = memoryStore.vehicles.find((v) => v.id === id && !v.isDeleted);
@@ -489,15 +490,15 @@ export class VehicleService {
 
     const avgRating =
       reviews.length > 0
-        ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-        : 4.9;
+        ? Math.round((reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length) * 10) / 10
+        : 0;
 
     return {
       ...veh,
       agency,
       reviews,
       maintenanceBlocks: maintenance,
-      averageRating: Math.round(avgRating * 10) / 10,
+      averageRating: avgRating,
     };
   }
 
@@ -506,6 +507,10 @@ export class VehicleService {
     status: ApprovalStatus,
     rejectionReason?: string
   ) {
+    if (status === "REJECTED" && (!rejectionReason || !rejectionReason.trim())) {
+      throw ApiError.badRequest("A rejection reason is required when rejecting a vehicle listing");
+    }
+
     if (await isPostgresConnected()) {
       return prisma.vehicle.update({
         where: { id: vehicleId },

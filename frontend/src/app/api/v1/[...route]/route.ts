@@ -1,6 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serverStore, StoreVehicle, StoreBooking, StoreUser } from "@/lib/serverStore";
 
+function sanitizeCustomer(user: any) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    phone: user.phone || null,
+    avatarUrl: user.avatarUrl || null,
+  };
+}
+
+const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
+  PENDING: ["APPROVED", "REJECTED", "CANCELLED"],
+  APPROVED: ["ACTIVE", "CANCELLED"],
+  ACTIVE: ["COMPLETED"],
+  REJECTED: [],
+  CANCELLED: [],
+  COMPLETED: [],
+};
+
 function jsonResponse(data: any, status = 200) {
   return NextResponse.json(data, {
     status,
@@ -220,16 +241,20 @@ export async function GET(
         : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
-    const limit = searchParams.get("limit");
-    if (limit) {
-      list = list.slice(0, parseInt(limit, 10));
-    }
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.max(1, Math.min(50, parseInt(searchParams.get("limit") || "12", 10)));
+    const total = list.length;
+    const startIndex = (page - 1) * limit;
+    const paginated = list.slice(startIndex, startIndex + limit);
 
     return jsonResponse({
       success: true,
-      count: list.length,
-      total: list.length,
-      data: list,
+      count: paginated.length,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      data: paginated,
     });
   }
 
@@ -257,7 +282,7 @@ export async function GET(
     const enriched = serverStore.bookings.map((b) => ({
       ...b,
       vehicle: serverStore.vehicles.find((v) => v.id === b.vehicleId),
-      customer: serverStore.users.find((u) => u.id === b.customerId),
+      customer: sanitizeCustomer(serverStore.users.find((u) => u.id === b.customerId)),
     }));
     return jsonResponse({ success: true, count: enriched.length, data: enriched });
   }
@@ -267,7 +292,7 @@ export async function GET(
     const enriched = serverStore.bookings.map((b) => ({
       ...b,
       vehicle: serverStore.vehicles.find((v) => v.id === b.vehicleId),
-      customer: serverStore.users.find((u) => u.id === b.customerId),
+      customer: sanitizeCustomer(serverStore.users.find((u) => u.id === b.customerId)),
     }));
     return jsonResponse({ success: true, count: enriched.length, data: enriched });
   }
@@ -287,8 +312,10 @@ export async function GET(
     const recentBookings = serverStore.bookings.slice(0, 5).map((b) => ({
       ...b,
       vehicle: serverStore.vehicles.find((v) => v.id === b.vehicleId),
-      customer: serverStore.users.find((u) => u.id === b.customerId),
+      customer: sanitizeCustomer(serverStore.users.find((u) => u.id === b.customerId)),
     }));
+
+    const utilizationRate = totalVehicles > 0 ? Math.round((activeRentals / totalVehicles) * 100) : 0;
 
     return jsonResponse({
       success: true,
@@ -298,7 +325,7 @@ export async function GET(
         pendingBookings,
         activeRentals,
         totalRevenue,
-        utilizationRate: 67.5,
+        utilizationRate,
         recentBookings,
       },
     });
@@ -310,22 +337,57 @@ export async function GET(
     return jsonResponse({ success: true, count: list.length, data: list });
   }
 
-  // 10. Admin Analytics
+  // 10. Admin Analytics (Calculated from real records)
   if (path === "admin/analytics") {
+    const totalVehicles = serverStore.vehicles.filter((v) => !v.isDeleted).length;
+    const activeRentals = serverStore.bookings.filter((b) => b.status === "ACTIVE").length;
+    const approvedOrActive = serverStore.bookings.filter((b) => ["APPROVED", "ACTIVE", "COMPLETED"].includes(b.status)).length;
+    const totalBookings = serverStore.bookings.length;
+
+    let twoWheelerRevenue = 0;
+    let fourWheelerRevenue = 0;
+    let totalRevenue = 0;
+
+    for (const b of serverStore.bookings) {
+      if (["ACTIVE", "COMPLETED"].includes(b.status)) {
+        const v = serverStore.vehicles.find((veh) => veh.id === b.vehicleId);
+        totalRevenue += b.totalAmount;
+        if (v?.type === "TWO_WHEELER") {
+          twoWheelerRevenue += b.totalAmount;
+        } else {
+          fourWheelerRevenue += b.totalAmount;
+        }
+      }
+    }
+
+    const utilizationRate = totalVehicles > 0 ? Math.round((activeRentals / totalVehicles) * 100) : 0;
+    const conversionRate = totalBookings > 0 ? Math.round((approvedOrActive / totalBookings) * 100) : 0;
+
     return jsonResponse({
       success: true,
       data: {
-        totalUsers: serverStore.users.length,
-        totalAgencies: serverStore.agencies.length,
-        totalVehicles: serverStore.vehicles.length,
-        totalBookings: serverStore.bookings.length,
-        totalRevenue: serverStore.bookings
-          .filter((b) => ["APPROVED", "ACTIVE", "COMPLETED"].includes(b.status))
-          .reduce((sum, b) => sum + b.totalAmount, 0),
-        utilizationRate: 74.2,
-        bookingConversionRate: 88.5,
-        conflictRate: 0.0,
-        monthlyActiveUsers: 342,
+        overview: {
+          totalUsers: serverStore.users.length,
+          totalAgencies: serverStore.agencies.length,
+          totalVehicles,
+          totalBookings,
+          totalRevenue: Math.round(totalRevenue * 100) / 100,
+          pendingVehicleApprovals: serverStore.vehicles.filter((v) => v.approvalStatus === "PENDING").length,
+        },
+        kpis: {
+          utilizationRate,
+          conversionRate,
+          conflictRate: 0.0,
+          monthlyActiveUsers: serverStore.users.length,
+        },
+        revenueBreakdown: {
+          twoWheelerRevenue: Math.round(twoWheelerRevenue * 100) / 100,
+          fourWheelerRevenue: Math.round(fourWheelerRevenue * 100) / 100,
+        },
+        metadata: {
+          reportingPeriod: "All-Time to Date",
+          lastRefreshedAt: new Date().toISOString(),
+        },
       },
     });
   }
@@ -450,12 +512,37 @@ export async function POST(
   if (path === "bookings") {
     const { vehicleId, startDate, endDate, pickupLocation, dropoffLocation, notes } = body;
     const vehicle = serverStore.vehicles.find((v) => v.id === vehicleId);
-    if (!vehicle) {
+    if (!vehicle || vehicle.isDeleted) {
       return jsonResponse({ message: "Vehicle not found" }, 404);
+    }
+    if (vehicle.status !== "AVAILABLE") {
+      return jsonResponse({ message: `Vehicle is currently unavailable for rent (status: ${vehicle.status})` }, 400);
+    }
+    if (vehicle.approvalStatus !== "APPROVED") {
+      return jsonResponse({ message: "Vehicle listing is pending admin review and cannot be reserved" }, 400);
     }
 
     const start = new Date(startDate);
     const end = new Date(endDate);
+
+    // Overlap conflict check against existing active bookings
+    const conflictingBooking = serverStore.bookings.find(
+      (b) =>
+        b.vehicleId === vehicleId &&
+        ["PENDING", "APPROVED", "ACTIVE"].includes(b.status) &&
+        start < new Date(b.endDate) &&
+        end > new Date(b.startDate)
+    );
+
+    if (conflictingBooking) {
+      return jsonResponse(
+        {
+          message: `Booking conflict: Vehicle is already reserved from ${new Date(conflictingBooking.startDate).toLocaleDateString()} to ${new Date(conflictingBooking.endDate).toLocaleDateString()}.`,
+        },
+        409
+      );
+    }
+
     const diffMs = end.getTime() - start.getTime();
     const totalDays = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
 
@@ -479,7 +566,7 @@ export async function POST(
       discountAmount: 0,
       totalAmount,
       status: "PENDING",
-      paymentStatus: body.paymentMethod === "UPI" ? "PAID" : "PENDING",
+      paymentStatus: "PENDING",
       rejectionReason: null,
       cancellationReason: null,
       pickupLocation: pickupLocation || (body.isDelivery ? `Doorstep Delivery: ${body.deliveryAddress || "Home Address"}` : "Agency Headquarters"),
@@ -501,7 +588,10 @@ export async function POST(
       {
         success: true,
         message: "Booking requested successfully! The agency will review your request shortly.",
-        data: newBooking,
+        data: {
+          ...newBooking,
+          customer: sanitizeCustomer(serverStore.users.find((u) => u.id === newBooking.customerId)),
+        },
       },
       201
     );
@@ -525,7 +615,7 @@ export async function POST(
       description: body.description || "",
       features: body.features || ["Air Conditioning", "Bluetooth"],
       status: "AVAILABLE",
-      approvalStatus: "APPROVED",
+      approvalStatus: "PENDING", // Newly created vehicles must be reviewed and approved by admin
       rejectionReason: null,
       isDeleted: false,
       createdAt: new Date().toISOString(),
@@ -597,11 +687,31 @@ export async function PATCH(
     const booking = serverStore.bookings.find((b) => b.id === bookingId);
     if (!booking) return jsonResponse({ message: "Booking not found" }, 404);
 
-    booking.status = body.status;
-    if (body.rejectionReason) booking.rejectionReason = body.rejectionReason;
-    if (body.cancellationReason) booking.cancellationReason = body.cancellationReason;
+    const allowedTransitions = VALID_STATUS_TRANSITIONS[booking.status] || [];
+    if (!allowedTransitions.includes(body.status)) {
+      return jsonResponse(
+        { message: `Invalid status transition from ${booking.status} to ${body.status}. Allowed next states: ${allowedTransitions.join(", ") || "none"}` },
+        400
+      );
+    }
 
-    return jsonResponse({ success: true, message: "Booking status updated", data: booking });
+    if (body.status === "REJECTED" && (!body.reason && !body.rejectionReason)) {
+      return jsonResponse({ message: "A rejection reason is required when declining a booking request" }, 400);
+    }
+
+    booking.status = body.status;
+    if (body.reason || body.rejectionReason) booking.rejectionReason = body.reason || body.rejectionReason;
+    if (body.reason || body.cancellationReason) booking.cancellationReason = body.reason || body.cancellationReason;
+    // Payment status remains decoupled from rental status (do not set PAID on ACTIVE)
+
+    return jsonResponse({
+      success: true,
+      message: `Booking status updated to ${body.status}`,
+      data: {
+        ...booking,
+        customer: sanitizeCustomer(serverStore.users.find((u) => u.id === booking.customerId)),
+      },
+    });
   }
 
   // 2. Admin User Status: PATCH /admin/users/:id/status

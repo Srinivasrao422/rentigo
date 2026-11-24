@@ -173,11 +173,17 @@ function VehicleDetails() {
                 {vehicle.category.replace("_", " ")}
               </span>
               <div className="ml-auto flex items-center gap-1 text-sm font-bold text-gray-900 dark:text-white">
-                <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                <span>{vehicle.averageRating || 4.9}</span>
-                <span className="text-xs font-normal text-gray-400">
-                  ({vehicle.totalReviews || 12} reviews)
-                </span>
+                {vehicle.averageRating && vehicle.averageRating > 0 ? (
+                  <>
+                    <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                    <span>{vehicle.averageRating}</span>
+                    <span className="text-xs font-normal text-gray-400">
+                      ({vehicle.totalReviews || 0} reviews)
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs font-medium text-gray-400">No reviews yet</span>
+                )}
               </div>
             </div>
 
@@ -301,31 +307,47 @@ function VehicleDetails() {
             <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-4">
               Verified Customer Reviews
             </h3>
-            <div className="space-y-4">
-              <div className="rounded-xl bg-gray-50 p-4 dark:bg-gray-800/50">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
-                      AR
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-gray-900 dark:text-white">
-                        Alex Rider
+            {vehicle.reviews && vehicle.reviews.length > 0 ? (
+              <div className="space-y-4">
+                {vehicle.reviews.map((r: any) => (
+                  <div key={r.id} className="rounded-xl bg-gray-50 p-4 dark:bg-gray-800/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
+                          {r.customer?.firstName?.[0] || "U"}{r.customer?.lastName?.[0] || ""}
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-gray-900 dark:text-white">
+                            {r.customer?.firstName} {r.customer?.lastName}
+                          </div>
+                          <div className="text-[10px] text-gray-400">Verified Rental</div>
+                        </div>
                       </div>
-                      <div className="text-[10px] text-gray-400">Verified Rental</div>
+                      <div className="flex items-center gap-0.5 text-amber-400">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            key={s}
+                            className={`h-3.5 w-3.5 ${s <= r.rating ? "fill-current" : "text-gray-300"}`}
+                          />
+                        ))}
+                      </div>
                     </div>
+                    {r.comment && (
+                      <p className="text-xs text-gray-600 dark:text-gray-300">
+                        "{r.comment}"
+                      </p>
+                    )}
                   </div>
-                  <div className="flex items-center gap-0.5 text-amber-400">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <Star key={s} className="h-3.5 w-3.5 fill-current" />
-                    ))}
-                  </div>
-                </div>
-                <p className="text-xs text-gray-600 dark:text-gray-300">
-                  "The vehicle was in immaculate condition! Seamless pickup and return. The automated weekly rate made our trip significantly cheaper."
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 text-gray-400">
+                <p className="text-xs font-medium">No reviews yet</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Reviews are collected from verified renters after rental return.
                 </p>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
