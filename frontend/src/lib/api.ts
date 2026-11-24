@@ -5,29 +5,37 @@ interface RequestOptions extends RequestInit {
   requiresAuth?: boolean;
 }
 
+const apiUnavailable = "We can’t reach RentiGo right now. Please try again in a moment.";
+
+async function fetchApi(url: string, options: RequestInit) {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    throw new Error(apiUnavailable);
+  }
+}
+
 export async function apiRequest<T = any>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { requiresAuth = true, headers = {}, ...rest } = options;
+  const { requiresAuth = true, headers, ...rest } = options;
 
   let accessToken = typeof window !== "undefined" ? localStorage.getItem("rentigo_access_token") : null;
 
-  const defaultHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(requiresAuth && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-    ...(headers as Record<string, string>),
-  };
-
-  // Remove Content-Type for FormData
-  if (rest.body instanceof FormData) {
-    delete defaultHeaders["Content-Type"];
+  const requestHeaders = new Headers(headers);
+  if (typeof rest.body === "string" && !requestHeaders.has("Content-Type")) {
+    requestHeaders.set("Content-Type", "application/json");
+  }
+  if (requiresAuth && accessToken && !requestHeaders.has("Authorization")) {
+    requestHeaders.set("Authorization", `Bearer ${accessToken}`);
   }
 
   const url = `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
 
-  let response = await fetch(url, {
-    headers: defaultHeaders,
+  let response = await fetchApi(url, {
+    headers: requestHeaders,
     ...rest,
   });
 
@@ -54,9 +62,9 @@ export async function apiRequest<T = any>(
             }
 
             // Retry original request with new token
-            defaultHeaders["Authorization"] = `Bearer ${newAccessToken}`;
-            response = await fetch(url, {
-              headers: defaultHeaders,
+            requestHeaders.set("Authorization", `Bearer ${newAccessToken}`);
+            response = await fetchApi(url, {
+              headers: requestHeaders,
               ...rest,
             });
           }
@@ -73,7 +81,13 @@ export async function apiRequest<T = any>(
     }
   }
 
-  const json = await response.json();
+  if (response.headers.get("x-railway-fallback") === "true" || response.status >= 500) {
+    throw new Error(apiUnavailable);
+  }
+
+  const json = await response.json().catch(() => {
+    throw new Error(apiUnavailable);
+  });
 
   if (!response.ok) {
     const errorMsg =
