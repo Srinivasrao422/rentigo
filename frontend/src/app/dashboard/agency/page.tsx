@@ -502,7 +502,7 @@ export default function AgencyDashboardPage() {
             <DollarSign className="h-4 w-4 text-emerald-500" />
           </div>
           <div className="text-2xl font-black text-emerald-700 dark:text-emerald-400">
-            {formatCurrency(stats?.totalRevenue ?? 32800)}
+            {stats?.totalRevenue !== undefined ? formatCurrency(stats.totalRevenue) : "—"}
           </div>
           <div className="text-[10px] text-emerald-600/90 mt-1 font-semibold">
             Processed rental bookings

@@ -43,11 +43,13 @@ export default function AdminDashboardPage() {
   const { user, isInitialized } = useAuthStore();
 
   const [analytics, setAnalytics] = useState<any>(null);
+  const [healthData, setHealthData] = useState<any>(null);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [agenciesList, setAgenciesList] = useState<any[]>([]);
   const [vehiclesList, setVehiclesList] = useState<any[]>([]);
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+  const [panelErrors, setPanelErrors] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Active tab: "ANALYTICS" | "APPROVALS" | "AGENCIES" | "USERS" | "ALL_BOOKINGS" | "AUDIT_LOGS"
@@ -79,7 +81,8 @@ export default function AdminDashboardPage() {
 
   const fetchData = async () => {
     setIsLoading(true);
-    const [analyticsRes, usersRes, agenciesRes, vehiclesRes, bookingsRes, auditRes] =
+    setPanelErrors([]);
+    const [analyticsRes, usersRes, agenciesRes, vehiclesRes, bookingsRes, auditRes, healthRes] =
       await Promise.allSettled([
         apiRequest("/admin/analytics", { requiresAuth: true }),
         apiRequest("/admin/users", { requiresAuth: true }),
@@ -87,27 +90,48 @@ export default function AdminDashboardPage() {
         apiRequest("/admin/vehicles", { requiresAuth: true }),
         apiRequest("/bookings/all", { requiresAuth: true }),
         apiRequest("/admin/audit-logs", { requiresAuth: true }),
+        apiRequest("/admin/health", { requiresAuth: true }),
       ]);
 
+    const errors: string[] = [];
     if (analyticsRes.status === "fulfilled") {
       setAnalytics(analyticsRes.value);
+    } else {
+      errors.push("Analytics");
     }
     if (usersRes.status === "fulfilled") {
       setUsersList(Array.isArray(usersRes.value) ? usersRes.value : []);
+    } else {
+      errors.push("Users");
     }
     if (agenciesRes.status === "fulfilled") {
       setAgenciesList(Array.isArray(agenciesRes.value) ? agenciesRes.value : []);
+    } else {
+      errors.push("Agencies");
     }
     if (vehiclesRes.status === "fulfilled") {
       setVehiclesList(Array.isArray(vehiclesRes.value) ? vehiclesRes.value : []);
+    } else {
+      errors.push("Vehicles");
     }
     if (bookingsRes.status === "fulfilled") {
       setAllBookings(Array.isArray(bookingsRes.value) ? bookingsRes.value : []);
+    } else {
+      errors.push("Bookings");
     }
     if (auditRes.status === "fulfilled") {
       setAuditLogs(Array.isArray(auditRes.value) ? auditRes.value : []);
+    } else {
+      errors.push("Audit Logs");
+    }
+    if (healthRes.status === "fulfilled") {
+      setHealthData(healthRes.value);
+    } else {
+      setHealthData({ status: "Unavailable", error: "Health probe failed" });
+      errors.push("Health Monitoring");
     }
 
+    setPanelErrors(errors);
     setLastRefreshed(new Date().toLocaleTimeString("en-IN"));
     setIsLoading(false);
   };
@@ -498,6 +522,21 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
+      {/* Error Banner if any telemetry panel failed */}
+      {panelErrors.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-red-200 bg-red-50/80 dark:border-red-900/50 dark:bg-red-950/30 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 text-red-800 dark:text-red-300">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>
+              Unable to refresh: <strong>{panelErrors.join(", ")}</strong>. Displayed figures reflect the last available response.
+            </span>
+          </div>
+          <Button size="sm" variant="outline" onClick={fetchData} className="text-xs border-red-300 text-red-700 hover:bg-red-100">
+            Retry Load
+          </Button>
+        </div>
+      )}
+
       {/* ========================================================= */}
       {/* TAB 1: EXECUTIVE TELEMETRY & REPORTING */}
       {/* ========================================================= */}
@@ -562,73 +601,134 @@ export default function AdminDashboardPage() {
               })()}
             </div>
 
-            {/* System Health & Microservices Telemetry */}
+            {/* Real Backend Health & Diagnostics */}
             <div className="rounded-2xl border border-gray-200/80 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500">
-                  Engine & Security Health
+                  Backend Health & Diagnostics
                 </h3>
-                <span className="text-xs text-emerald-600 font-bold flex items-center gap-1">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  <span>All Systems Optimal</span>
-                </span>
+                {(() => {
+                  const st = healthData?.status || (isLoading ? "Checking..." : "Unavailable");
+                  const color =
+                    st === "Healthy"
+                      ? "text-emerald-600"
+                      : st === "Degraded"
+                      ? "text-amber-600"
+                      : "text-red-600";
+                  return (
+                    <span className={`text-xs font-bold flex items-center gap-1 ${color}`}>
+                      {st === "Healthy" ? (
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      ) : (
+                        <AlertCircle className="h-3.5 w-3.5" />
+                      )}
+                      <span>{st}</span>
+                    </span>
+                  );
+                })()}
               </div>
 
               <div className="space-y-3 text-xs">
                 <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60">
                   <span className="font-medium text-gray-700 dark:text-gray-300">
-                    Double-Booking Serializable Lock
+                    Booking Conflict Detection ({analytics?.kpis?.conflictCount ?? 0} conflicts)
                   </span>
-                  <span className="font-bold text-emerald-600 flex items-center gap-1">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>0 Conflicts Logged</span>
-                  </span>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60">
-                  <span className="font-medium text-gray-700 dark:text-gray-300">
-                    Tiered Indian Rate Calculator (Daily/Weekly/Monthly)
-                  </span>
-                  <span className="font-bold text-emerald-600 flex items-center gap-1">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>18% GST Compliant</span>
+                  <span className="font-bold text-gray-900 dark:text-white">
+                    {analytics?.kpis?.conflictRate !== undefined ? `${analytics.kpis.conflictRate}% rate` : "—"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60">
                   <span className="font-medium text-gray-700 dark:text-gray-300">
-                    Digital KYC & Handover OTP Security Gateway
+                    API Latency / Data Store ({healthData?.database || "—"})
                   </span>
-                  <span className="font-bold text-blue-600 flex items-center gap-1">
-                    <Shield className="h-4 w-4" />
-                    <span>Active & Enforced</span>
+                  <span className="font-bold text-gray-900 dark:text-white">
+                    {healthData?.latencyMs !== undefined ? `${healthData.latencyMs} ms (avg ${healthData.avgLatencyMs ?? healthData.latencyMs} ms)` : "Unavailable"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">
+                    Uptime & Server Errors
+                  </span>
+                  <span className="font-bold text-gray-900 dark:text-white">
+                    {healthData?.uptimeSeconds !== undefined
+                      ? `${healthData.uptimeSeconds}s uptime • ${healthData.errorCount ?? 0} errors`
+                      : "Unavailable"}
                   </span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Regional Hub Distribution */}
-          <div className="rounded-2xl border border-gray-200/80 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-4">
-              Regional Operations Hubs (India)
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-              <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800">
-                <div className="font-bold text-gray-900 dark:text-white">Bengaluru Tech Hub</div>
-                <div className="text-[11px] text-gray-500 mt-1">45% Fleet Share • ₹45,200 vol</div>
-              </div>
-              <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800">
-                <div className="font-bold text-gray-900 dark:text-white">Goa Leisure & Coastal</div>
-                <div className="text-[11px] text-gray-500 mt-1">25% Fleet Share • ₹31,000 vol</div>
-              </div>
-              <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800">
-                <div className="font-bold text-gray-900 dark:text-white">Mumbai Expressway Hub</div>
-                <div className="text-[11px] text-gray-500 mt-1">18% Fleet Share • ₹22,500 vol</div>
-              </div>
-              <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800">
-                <div className="font-bold text-gray-900 dark:text-white">Delhi NCR & Noida</div>
-                <div className="text-[11px] text-gray-500 mt-1">12% Fleet Share • ₹16,800 vol</div>
+          {/* Real Booking & Fleet Breakdown */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 text-xs">
+            <div className="rounded-xl border border-gray-200/80 bg-white p-3.5 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-[10px] font-bold uppercase text-gray-400">Monthly Revenue</div>
+              <div className="text-base font-black text-gray-900 dark:text-white mt-1">
+                {analytics?.overview?.monthlyRevenue !== undefined ? formatCurrency(analytics.overview.monthlyRevenue) : "—"}
               </div>
             </div>
+            <div className="rounded-xl border border-gray-200/80 bg-white p-3.5 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-[10px] font-bold uppercase text-gray-400">Active / Completed</div>
+              <div className="text-base font-black text-gray-900 dark:text-white mt-1">
+                {analytics?.overview?.activeBookings ?? 0} / {analytics?.overview?.completedBookings ?? 0}
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-200/80 bg-white p-3.5 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-[10px] font-bold uppercase text-gray-400">Cancelled Bookings</div>
+              <div className="text-base font-black text-gray-900 dark:text-white mt-1">
+                {analytics?.overview?.cancelledBookings ?? 0}
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-200/80 bg-white p-3.5 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-[10px] font-bold uppercase text-gray-400">Total Customers</div>
+              <div className="text-base font-black text-gray-900 dark:text-white mt-1">
+                {analytics?.overview?.totalCustomers ?? 0}
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-200/80 bg-white p-3.5 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-[10px] font-bold uppercase text-gray-400">Available Fleet</div>
+              <div className="text-base font-black text-emerald-600 mt-1">
+                {analytics?.overview?.availableVehicles ?? 0}
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-200/80 bg-white p-3.5 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-[10px] font-bold uppercase text-gray-400">Rented Now</div>
+              <div className="text-base font-black text-blue-600 mt-1">
+                {analytics?.overview?.rentedVehicles ?? 0}
+              </div>
+            </div>
+          </div>
+
+          {/* Real Revenue by Location (Computed from Database Records) */}
+          <div className="rounded-2xl border border-gray-200/80 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500">
+                Revenue & Fleet Distribution by Location
+              </h3>
+              {lastRefreshed && (
+                <span className="text-[11px] text-gray-400">Updated {lastRefreshed}</span>
+              )}
+            </div>
+            {!analytics?.revenueByLocation || analytics.revenueByLocation.length === 0 ? (
+              <div className="text-xs text-gray-400 py-4 text-center">
+                No location revenue data recorded yet.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                {analytics.revenueByLocation.map((loc: any) => (
+                  <div
+                    key={loc.city}
+                    className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800"
+                  >
+                    <div className="font-bold text-gray-900 dark:text-white">{loc.city}</div>
+                    <div className="text-[11px] text-gray-500 mt-1">
+                      {loc.fleetSharePercent}% Fleet • {loc.bookingsCount} bookings •{" "}
+                      <strong className="text-emerald-600">{formatCurrency(loc.revenue)}</strong>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -754,8 +854,10 @@ export default function AdminDashboardPage() {
                       {a.city}, {a.state}
                     </td>
                     <td className="p-4 font-mono text-[11px]">
-                      <div className="text-gray-900 dark:text-white font-bold">29AABCU9603R1ZM</div>
-                      <div className="text-emerald-600 text-[10px]">Trade License: Verified</div>
+                      <div className="text-gray-900 dark:text-white font-bold">{a.gstin || "Not Provided"}</div>
+                      <div className={a.isApproved ? "text-emerald-600 text-[10px]" : "text-amber-600 text-[10px]"}>
+                        {a.isApproved ? "Compliance Verified" : "Pending Verification"}
+                      </div>
                     </td>
                     <td className="p-4 text-gray-500">{a.contactPhone}</td>
                     <td className="p-4">

@@ -1,3 +1,10 @@
+import crypto from "crypto";
+
+function createInitialHash(password: string): string {
+  const salt = "rentigo-init-salt-2026";
+  return `${salt}:${crypto.scryptSync(password, salt, 64).toString("hex")}`;
+}
+
 export interface StoreAgency {
   id: string;
   userId: string;
@@ -144,6 +151,10 @@ export interface StoreBooking {
 export interface StoreUser {
   id: string;
   email: string;
+  passwordHash: string;
+  refreshToken?: string | null;
+  mfaEnabled?: boolean;
+  mfaSecret?: string | null;
   firstName: string;
   lastName: string;
   phone: string | null;
@@ -225,6 +236,8 @@ export const INITIAL_USERS: StoreUser[] = [
   {
     id: "u-admin-001",
     email: "admin@rentigo.com",
+    passwordHash: createInitialHash("Admin@SecurePass2026!"),
+    mfaEnabled: false,
     firstName: "Priya",
     lastName: "Sharma",
     phone: "+91 98100 22334",
@@ -236,6 +249,8 @@ export const INITIAL_USERS: StoreUser[] = [
   {
     id: "u-agency-001",
     email: "owner@cityridemotors.com",
+    passwordHash: createInitialHash("Agency@SecurePass2026!"),
+    mfaEnabled: false,
     firstName: "Rajesh",
     lastName: "Nair",
     phone: "+91 98450 12345",
@@ -252,6 +267,8 @@ export const INITIAL_USERS: StoreUser[] = [
   {
     id: "u-customer-001",
     email: "customer@example.com",
+    passwordHash: createInitialHash("Customer@SecurePass2026!"),
+    mfaEnabled: false,
     firstName: "Rahul",
     lastName: "Verma",
     phone: "+91 99887 76655",
@@ -1088,6 +1105,13 @@ export const INITIAL_AUDIT_LOGS: StoreAuditLog[] = [
   },
 ];
 
+export interface PasswordResetEntry {
+  token: string;
+  userId: string;
+  email: string;
+  expiresAt: number;
+}
+
 class MemoryStore {
   public users: StoreUser[] = [...INITIAL_USERS];
   public agencies: StoreAgency[] = [...INITIAL_AGENCIES];
@@ -1095,6 +1119,13 @@ class MemoryStore {
   public bookings: StoreBooking[] = [...INITIAL_BOOKINGS];
   public maintenanceBlocks: StoreMaintenanceBlock[] = [...INITIAL_MAINTENANCE];
   public auditLogs: StoreAuditLog[] = [...INITIAL_AUDIT_LOGS];
+  public passwordResetTokens: PasswordResetEntry[] = [];
+  public startedAt: number = Date.now();
+  public requestCount: number = 0;
+  public errorCount: number = 0;
+  public recentLatenciesMs: number[] = [];
+  public recentErrors: Array<{ timestamp: string; path: string; message: string }> = [];
+  public activeBookingLocks: Set<string> = new Set();
 }
 
 declare global {

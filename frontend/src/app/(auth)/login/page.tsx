@@ -4,7 +4,9 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "../../../store/authStore";
+import { apiRequest } from "../../../lib/api";
 import { Button } from "../../../components/ui/Button";
+import { Dialog } from "../../../components/ui/Dialog";
 import { Input } from "../../../components/ui/Input";
 import {
   Car,
@@ -35,6 +37,14 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [bookingReturn, setBookingReturn] = useState<string | null>(null);
+
+  // Forgot Password modal state
+  const [isResetOpen, setIsResetOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [resetStep, setResetStep] = useState<"REQUEST" | "CONFIRM">("REQUEST");
+  const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
     setBookingReturn(getBookingReturn());
@@ -72,6 +82,45 @@ export default function LoginPage() {
       finishSignIn(user.role);
     } catch (err: any) {
       setError(err.message || "Failed to sign in with demo account");
+    }
+  };
+
+  const handleRequestReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsResetting(true);
+    try {
+      await apiRequest("/auth/forgot-password", {
+        method: "POST",
+        requiresAuth: false,
+        body: JSON.stringify({ email: resetEmail }),
+      });
+      toast.success("If an account exists for that email, a password reset token has been issued.");
+      setResetStep("CONFIRM");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to request password reset");
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  const handleConfirmReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsResetting(true);
+    try {
+      await apiRequest("/auth/reset-password", {
+        method: "POST",
+        requiresAuth: false,
+        body: JSON.stringify({ token: resetToken, newPassword: resetNewPassword }),
+      });
+      toast.success("Password updated! Please sign in with your new password.");
+      setIsResetOpen(false);
+      setResetStep("REQUEST");
+      setResetToken("");
+      setResetNewPassword("");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to reset password");
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -175,9 +224,21 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetEmail(email);
+                    setIsResetOpen(true);
+                  }}
+                  className="text-[11px] font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  Forgot password?
+                </button>
+              </div>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <input
@@ -213,6 +274,85 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+
+      {/* Password Reset Dialog */}
+      <Dialog
+        isOpen={isResetOpen}
+        onClose={() => {
+          setIsResetOpen(false);
+          setResetStep("REQUEST");
+        }}
+        title="Reset Your Password"
+        description={
+          resetStep === "REQUEST"
+            ? "Enter your account email address to request a password reset token."
+            : "Enter the reset token and choose a new password (minimum 8 characters)."
+        }
+      >
+        {resetStep === "REQUEST" ? (
+          <form onSubmit={handleRequestReset} className="space-y-4 text-xs">
+            <div>
+              <label className="block font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                Account Email
+              </label>
+              <input
+                type="email"
+                required
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full rounded-lg border border-gray-300 p-2.5 dark:bg-gray-800 dark:border-gray-700"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setIsResetOpen(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Button type="submit" isLoading={isResetting} className="flex-1 font-bold">
+                Send Reset Token
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleConfirmReset} className="space-y-4 text-xs">
+            <div>
+              <label className="block font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                Reset Token
+              </label>
+              <input
+                type="text"
+                required
+                value={resetToken}
+                onChange={(e) => setResetToken(e.target.value)}
+                placeholder="Paste reset token"
+                className="w-full rounded-lg border border-gray-300 p-2.5 font-mono dark:bg-gray-800 dark:border-gray-700"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                New Password
+              </label>
+              <input
+                type="password"
+                required
+                minLength={8}
+                value={resetNewPassword}
+                onChange={(e) => setResetNewPassword(e.target.value)}
+                placeholder="Minimum 8 characters"
+                className="w-full rounded-lg border border-gray-300 p-2.5 dark:bg-gray-800 dark:border-gray-700"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setResetStep("REQUEST")} className="flex-1">
+                Back
+              </Button>
+              <Button type="submit" isLoading={isResetting} className="flex-1 font-bold">
+                Reset Password
+              </Button>
+            </div>
+          </form>
+        )}
+      </Dialog>
     </div>
   );
 }

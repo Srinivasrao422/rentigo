@@ -25,6 +25,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   initializeAuth: () => {
     if (typeof window === "undefined") return;
 
+    const handleSessionExpired = () => {
+      set({ user: null, accessToken: null, error: "Session expired. Please sign in again." });
+    };
+    window.removeEventListener("auth-logout", handleSessionExpired);
+    window.addEventListener("auth-logout", handleSessionExpired);
+
     try {
       const storedUser = localStorage.getItem("rentigo_user");
       const storedToken = localStorage.getItem("rentigo_access_token");
@@ -132,11 +138,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       throw new Error("Demo personas are disabled in production.");
     }
 
-    let email = "alex.rider@example.com";
+    let email = "customer@example.com";
     let pass = "Customer@SecurePass2026!";
 
     if (role === "AGENCY_OWNER") {
-      email = "owner@apexrentals.com";
+      email = "owner@cityridemotors.com";
       pass = "Agency@SecurePass2026!";
     } else if (role === "ADMIN") {
       email = "admin@rentigo.com";
